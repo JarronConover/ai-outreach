@@ -16,14 +16,17 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <Header />
-      <main className="max-w-7xl mx-auto px-6 py-6 flex gap-5 items-start">
-        <aside className="w-72 shrink-0 flex flex-col gap-5">
-          <RunPanel onJobComplete={handleJobComplete} />
-        </aside>
-        <div className="flex-1 min-w-0 flex flex-col gap-5">
-          <PeopleTable refreshKey={refreshKey} />
-          <DemosWidget refreshKey={refreshKey} />
-          <PendingActionsWidget onJobComplete={handleJobComplete} />
+      <main className="max-w-7xl mx-auto px-6 py-6 flex flex-col gap-5">
+        <KpiCards refreshKey={refreshKey} />
+        <div className="flex gap-5 items-start">
+          <aside className="w-72 shrink-0 flex flex-col gap-5">
+            <RunPanel onJobComplete={handleJobComplete} />
+          </aside>
+          <div className="flex-1 min-w-0 flex flex-col gap-5">
+            <PeopleTable refreshKey={refreshKey} />
+            <DemosWidget refreshKey={refreshKey} />
+            <PendingActionsWidget onJobComplete={handleJobComplete} />
+          </div>
         </div>
       </main>
     </div>
