@@ -4,213 +4,92 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**AI-Outreach** is an Autonomous Sales Development Representative (SDR) system built as a hackathon MVP. It uses autonomous AI agents to generate leads, draft outreach emails, and draft replies to incoming emails—all while keeping the user in control of execution.
+**AI-Outreach** is an Autonomous Sales Development Representative (SDR) system. AI agents generate leads, draft outreach emails, and handle reply logic—but never send emails without user approval. Google Sheets is the single source of truth for all CRM data.
 
-**Key Philosophy**: Agents autonomously reason and draft content, but never send emails without user approval. Google Sheets is the single source of truth for all data and drafts.
-
-## Architecture
-
-### Core Agents
-
-The system has 4 agents, each in its own directory with consistent structure:
-
-1. **Orchestrator Agent** (`orchestrator-agent/`)
-   - Listens for events in Google Sheets (LEAD_GENERATED, EMAIL_RECEIVED)
-   - Dispatches the appropriate agent based on event type
-   - Acts as the event router/coordinator
-
-2. **Prospecting Agent** (`prospect-agent/`)
-   - Generates leads based on ICP (Ideal Customer Profile)
-   - Writes leads to Google Sheets
-   - Triggered by user action (e.g., "Generate Leads" button)
-
-3. **Outreach Agent** (`outreach-agent/`)
-   - Drafts personalized outreach emails for each lead
-   - Triggered by LEAD_GENERATED event
-   - Writes draft subject + body to Sheets
-
-4. **Inbox Agent** (`inbox-agent/`)
-   - Drafts replies to incoming emails
-   - Classifies incoming emails (INTERESTED, NOT_INTERESTED, QUESTION, OTHER)
-   - Triggered by EMAIL_RECEIVED event
-
-### Event-Driven Flow
-
-```
-User triggers "Generate Leads"
-        ↓
-   Prospecting Agent → writes leads to Sheets
-        ↓ LEAD_GENERATED event
-   Orchestrator → Outreach Agent
-        ↓
-   Outreach Agent → writes drafts to Sheets
-        ↓
-   User reviews & clicks SEND (manual)
-        ↓
-   EMAIL_RECEIVED event (simulated or real)
-        ↓
-   Orchestrator → Inbox Agent
-        ↓
-   Inbox Agent → writes reply drafts to Sheets
-        ↓
-   User reviews & clicks SEND
-```
-
-### Agent Directory Structure
-
-Each agent directory follows this pattern:
-
-```
-{agent-name}/
-├── main.py                  # Entry point (currently empty, needs implementation)
-├── agent/
-│   ├── orchestrator.py      # Agent logic/reasoning (core implementation)
-│   ├── exceptions.py        # Custom exceptions
-│   └── tracer.py            # Optional: reasoning trace/logging
-├── schemas/
-│   ├── input.py             # Input data models (Pydantic)
-│   └── output.py            # Output data models (Pydantic)
-├── tools/
-│   └── tool.py              # External API integrations (Sheets, Gmail, enrichment)
-└── docs/
-    └── text.txt             # Agent-specific documentation
-```
-
-This "folded" structure reduces boilerplate while keeping concerns separated.
-
-## Key Technologies & Dependencies
-
-- **Framework**: LangChain (agent orchestration & LLM calls)
-- **LLM**: Claude (via Anthropic API)
-- **Data Storage**: Google Sheets API (source of truth)
-- **Email**: Gmail API (draft only, user controls sending)
-- **Data Validation**: Pydantic (schemas for structured outputs)
-- **Optional**: Fake enrichment API for demo leads (no real LinkedIn scraping)
-
-## Data Models
-
-### Lead Schema
-```json
-{
-  "id": "uuid",
-  "name": "string",
-  "company": "string",
-  "email": "string",
-  "stage": "string",
-  "last_message": "string",
-  "next_action": "string"
-}
-```
-
-### Email Draft Schema
-```json
-{
-  "lead_id": "uuid",
-  "subject": "string",
-  "body": "string",
-  "status": "draft|sent",
-  "timestamp": "ISO string"
-}
-```
-
-## Development Setup
-
-### Prerequisites
-- Python 3.9+
-- Google Sheets API credentials (project needs setup)
-- Gmail API credentials (project needs setup)
-- Anthropic API key (Claude access)
-
-### Commands (to be implemented)
-
-Once dependencies are installed:
+## Commands
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Run a specific agent
-python {agent-name}/main.py
+# Run prospect agent (generates leads from ICP)
+python prospect-agent/main.py
 
-# Run tests (when implemented)
-pytest
+# Run outreach agent
+python outreach-agent/main.py [--dry-run] [--export-trace]
 
-# Run type checking
+# Run tests (prospect-agent has tests; others do not yet)
+pytest prospect-agent/tests/
+
+# Run a single test file
+pytest prospect-agent/tests/test_orchestrator.py
+
+# Type checking / linting
 mypy .
-
-# Format code
-black .
-
-# Lint code
 ruff check .
+black .
 ```
 
-### Environment Variables
+## Architecture
 
-You'll need to set up:
-- `ANTHROPIC_API_KEY` - Claude API key
-- `GOOGLE_SHEETS_API_KEY` or credentials file
-- `GMAIL_API_KEY` or credentials file
-- `GOOGLE_SHEET_ID` - The Sheet ID containing leads, drafts, and events
+### Implementation Status
 
-## Implementation Status
+| Agent | Status |
+|-------|--------|
+| `prospect-agent/` | Complete — generates leads via Tavily web search + Gemini |
+| `outreach-agent/` | Complete — sends 5 email types, creates calendar events |
+| `orchestrator-agent/` | Empty — was meant to route events from Sheets to agents |
+| `inbox-agent/` | Empty — was meant to draft replies to incoming emails |
 
-This is an **early-stage hackathon project**. The directory structure and PRD are complete, but **code implementation is just beginning**.
+### Global Schemas (`schemas/`)
 
-All agent files (`orchestrator.py`, `tool.py`, `input.py`, `output.py`, etc.) are currently empty.
+Shared CRM data models used by all agents:
+- `schemas/crm.py` — `Person`, `Company`, `Demo`, `Email`, `Thread`, `Stage` (enum), `DemoStatus` (enum), `CRMContext`
+- `schemas/sheet_config.py` — Column index constants (`PeopleColumns`, `CompanyColumns`, `DemoColumns`) and `SheetNames` for all 3 Google Sheets tabs
 
-### What Needs to Be Built
+These are the canonical models. Agent-local schemas re-export from here.
 
-1. **Schemas**: Define Pydantic models in each agent's `input.py` and `output.py`
-2. **Tools**: Implement Google Sheets and Gmail API interactions in `tools/tool.py`
-3. **Agent Logic**: Implement reasoning in `agent/orchestrator.py` using LangChain
-4. **Tracing**: Optional debug logging in `agent/tracer.py`
-5. **Main Entry Points**: Implement `main.py` for each agent
-6. **UI/Buttons**: Simple trigger mechanism for user actions (can be CLI or web interface)
-7. **Integration**: Orchestrator event loop that polls Sheets and dispatches agents
+### Prospect Agent (`prospect-agent/`)
 
-## Key Design Notes
+- **LLM**: Gemini 2.5 Flash (via `langchain-google-genai`) — not Claude
+- **Search**: Tavily web search (via `langchain-tavily`) to find leads matching an ICP
+- **Entry**: `main.py` configures an `ICPInput` and calls `ProspectingAgent`
+- **Output**: Writes `Person` records to Google Sheets via `tools/people_sheet.py` (gspread), with deduplication by email
+- **Note**: `tools/tool.py` exists but is broken (references a non-existent `LeadsOutput`); use `tools/people_sheet.py` instead
 
-- **No Production Error Handling Yet**: The PR notes that this is MVP-level code. Add production-grade retries, timeouts, and error handling as needed.
-- **Google Sheets = Single Source of Truth**: All data flows through Sheets for visibility and debugging. This is intentional for hackathon demo purposes.
-- **Draft-Only Philosophy**: Agents never send emails directly. All outputs are drafts that users must approve.
-- **Structured Outputs**: Use JSON schemas (via Pydantic) to ensure predictable, parseable LLM outputs.
-- **Trace Logs**: Include reasoning logs for each agent run (helpful for demos and debugging).
+### Outreach Agent (`outreach-agent/`)
 
-## Tools Integration
+The most complete agent. Has 5 distinct tools in `tools/`, each implementing a `BaseTool` interface from `tools/tool.py`:
 
-### Google Sheets API
-- **Read**: Event detection (LEAD_GENERATED, EMAIL_RECEIVED rows)
-- **Write**: Store leads, email drafts, trace logs
-- **Access**: Service account or OAuth credentials
+| Tool | Trigger Condition | Action |
+|------|-------------------|--------|
+| `EmailClientsTool` | `stage=client` | Sends check-in email |
+| `EmailProspectsTool` | `stage=prospect`, no prior contact | Sends intro email |
+| `ScheduleDemoTool` | Demo status = scheduled | Creates calendar event + sends confirmation |
+| `ScheduleFollowUpTool` | Mid-pipeline (7-day cadence) | Sends follow-up email |
+| `SyncDemoCalendarTool` | Manually-entered demo dates | Syncs to Google Calendar |
 
-### Gmail API
-- **Read**: Incoming emails (simulated in MVP, can be real later)
-- **Write**: Draft emails (user sends manually, not automated)
+- `agent/orchestrator.py` — `OutreachOrchestrator` runs all 5 tools sequentially
+- `agent/config.py` — `OutreachAgentConfig` (Pydantic) controls which tools run and dry-run mode
+- `agent/results.py` — `EmailResult`, `CalendarEventResult`, `OutreachRunResult`
+- `agent/tracer.py` — `OutreachTracer` with structured JSON logging
+- Uses `google-api-python-client` directly (not LangChain) for Gmail and Google Calendar
 
-### Anthropic API (Claude)
-- **Tool Use**: Agents use Claude with tool-calling for structured outputs
-- **Reasoning**: Include chain-of-thought for agent decisions
+## Environment Variables
 
-## Git Workflow
+Copy `.env.example` (root) and `outreach-agent/.env.example`. Key variables:
 
-- **Main branch**: Stable code (only for complete, tested features)
-- **Feature branches**: One per agent or feature (e.g., `prospect-agent-impl`, `orchestrator-event-loop`)
-- **Commit messages**: Clear, descriptive (e.g., "Implement prospect agent with lead generation")
+```
+GOOGLE_API_KEY         # Gemini API key (prospect-agent)
+TAVILY_API_KEY         # Web search (prospect-agent)
+GOOGLE_SHEET_ID        # Sheet ID for all CRM data
+```
 
-## Testing Strategy (to implement)
+Outreach agent also needs OAuth credentials for Gmail and Google Calendar (see `outreach-agent/.env.example`).
 
-- **Unit tests**: Each agent's logic in isolation
-- **Integration tests**: Agent + Sheets API interactions
-- **E2E tests**: Full flow from trigger to draft in Sheets
-- **Mock data**: Fake leads and emails for testing without real APIs
+## Key Design Decisions
 
-## Questions for Next Steps
-
-1. **UI**: Will this be CLI-based, web UI, or a Sheets add-on?
-2. **Email Service**: Real Gmail or simulated email events?
-3. **Enrichment**: Will you use fake data or a real enrichment API?
-4. **Async vs Sync**: Should agents run in parallel or sequentially?
-5. **Logging Level**: How much trace detail for the demo?
-
-See `prd.md` for the complete specification.
+- **Gemini, not Claude**: The prospect-agent uses Gemini 2.5 Flash. The outreach-agent uses direct Google API calls for email/calendar, not an LLM.
+- **Draft-only philosophy**: No agent sends emails autonomously. All actions require user approval via Sheets.
+- **`conftest.py`** at the root adds `prospect-agent/` to `sys.path` for test discovery.
+- Each agent has its own `requirements.txt`; root `requirements.txt` covers shared/test deps.

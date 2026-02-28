@@ -1,13 +1,47 @@
+# ── Secrets / credentials ─────────────────────────────────────
 .env
+.env.*
+!.env.example
+credentials.json
+token.pickle
+*.pickle
+*.pem
+*.key
+service_account*.json
+
+# ── Python ────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-.pytest_cache/
+.Python
 *.egg-info/
 dist/
 build/
-credentials.json
-/myvenv/
-frontend/node_modules/
-frontend/dist/
+.eggs/
+*.egg
+
+# ── Virtual environments ───────────────────────────────────────
+.venv/
+venv/
+myvenv/
+ENV/
+# ── Testing / coverage ────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# ── Logs / traces ─────────────────────────────────────────────
+*.log
+trace.json
+*.trace
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────
+.idea/
+*.swp
+*.swo

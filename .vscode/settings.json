@@ -1,0 +1,19 @@
+{
+  // "files.exclude": {
+  //   "**/.env": true,
+  //   "**/.env.*": true,
+  //   "**/credentials.json": true,
+  //   "**/token.pickle": true,
+  //   "**/*.pickle": true,
+  //   "**/*.pem": true,
+  //   "**/*.key": true,
+  //   "**/service_account*.json": true
+  // },
+  "search.exclude": {
+    "**/.env": true,
+    "**/.env.*": true,
+    "**/credentials.json": true,
+    "**/token.pickle": true,
+    "**/*.pickle": true
+  }
+}
