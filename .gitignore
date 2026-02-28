@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ── Secrets / credentials ─────────────────────────────────────
 .env
 .env.*
@@ -46,3 +47,16 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+=======
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+credentials.json
+myenv/
+>>>>>>> main
