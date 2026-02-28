@@ -45,12 +45,22 @@ _pa_output = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "schemas", "output.p
 _pa_tracer = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "agent", "tracer.py"), "_api.pa.agent.tracer")
 _pa_exceptions = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "agent", "exceptions.py"), "_api.pa.agent.exceptions")
 _pa_tools = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "people_sheet.py"), "_api.pa.tools.people_sheet")
+_pa_demos = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "demos_sheet.py"), "_api.pa.tools.demos_sheet")
+_pa_actions = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "actions_sheet.py"), "_api.pa.tools.actions_sheet")
 
 ICPInput = _pa_input.ICPInput
 log_trace = _pa_tracer.log_trace
 append_people = _pa_tools.append_people
 filter_duplicates = _pa_tools.filter_duplicates
 get_existing_people = _pa_tools.get_existing_people
+get_demos = _pa_demos.get_demos
+get_actions = _pa_actions.get_actions
+get_action_by_id = _pa_actions.get_action_by_id
+write_actions = _pa_actions.write_actions
+update_action_status = _pa_actions.update_action_status
+batch_update_action_status = _pa_actions.batch_update_action_status
+cancel_pending_actions = _pa_actions.cancel_pending_actions
+clear_all_actions = _pa_actions.clear_all_actions
 
 # prospect-agent/agent/orchestrator.py uses bare imports (`from schemas.input import ICPInput`).
 # Swap sys.modules so those bare imports resolve to prospect-agent's modules, not orchestrator-agent's.
@@ -75,12 +85,13 @@ finally:
 
 load_dotenv()
 
+
 # ---------------------------------------------------------------------------
 # Sheet poller — watches for new PROSPECTING people and fires outreach jobs
 # ---------------------------------------------------------------------------
 _seen_person_ids: set[str] = set()
 _stop_poller = threading.Event()
-_POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "15"))  # seconds
+_POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "60"))  # seconds
 
 # Index positions in the People sheet header row
 _IDX_ID = 0
@@ -266,6 +277,238 @@ def _run_pipeline_job(job_id: str, pipeline_input: PipelineInput):
         _jobs[job_id]["status"] = "failed"
         _jobs[job_id]["error"] = str(e)
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Outreach job helpers — delegate to OrchestratorAgent
+# ---------------------------------------------------------------------------
+
+
+def _run_outreach_plan_job(job_id: str):
+    """Background thread: runs OrchestratorAgent.plan_outreach() and writes actions to the Actions sheet."""
+    _jobs[job_id]["status"] = "running"
+    _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
+    try:
+        plan = OrchestratorAgent().plan_outreach()
+
+        clear_all_actions()
+        now = datetime.utcnow().isoformat()
+        new_actions = []
+
+        for e in plan.emails_sent:
+            if not e.success:
+                continue
+            # demo_invite emails are sent automatically by schedule_demo_tool
+            # when its calendar action is confirmed — skip to avoid a no-op duplicate.
+            if e.email_type == "demo_invite":
+                continue
+            new_actions.append({
+                "id": str(uuid.uuid4()),
+                "kind": "email",
+                "email_type": e.email_type,
+                "recipient_email": e.recipient_email,
+                "recipient_name": e.recipient_name,
+                "subject": e.subject,
+                "person_id": e.person_id,
+                "status": "pending",
+                "created_at": now,
+            })
+
+        for c in plan.calendar_events_created:
+            if not c.success:
+                continue
+            new_actions.append({
+                "id": str(uuid.uuid4()),
+                "kind": "calendar",
+                "event_type": c.event_type,
+                "event_title": c.event_title,
+                "attendees": c.attendees,
+                "start_time": c.start_time.isoformat() if c.start_time else None,
+                "end_time": c.end_time.isoformat() if c.end_time else None,
+                "demo_id": c.demo_id,
+                "status": "pending",
+                "created_at": now,
+            })
+
+        write_actions(new_actions)
+        _jobs[job_id]["status"] = "completed"
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        _jobs[job_id]["result"] = {"pending_actions": len(new_actions)}
+    except Exception as e:
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["error"] = str(e)
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+
+
+def _execute_single_action_job(job_id: str, action: dict):
+    _jobs[job_id]["status"] = "running"
+    _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
+    action_id = action["id"]
+    try:
+        OrchestratorAgent().execute_confirmed_actions([action])
+        update_action_status(action_id, "confirmed", datetime.utcnow().isoformat())
+        _jobs[job_id]["status"] = "completed"
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+    except Exception as e:
+        try:
+            update_action_status(action_id, "pending")  # revert so user can retry
+        except Exception:
+            pass
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["error"] = str(e)
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+
+
+def _execute_all_actions_job(job_id: str, action_ids: list):
+    _jobs[job_id]["status"] = "running"
+    _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
+    try:
+        all_sheet_actions = get_actions()
+        id_set = set(action_ids)
+        actions = [a for a in all_sheet_actions if a["id"] in id_set]
+        OrchestratorAgent().execute_confirmed_actions(actions)
+        now = datetime.utcnow().isoformat()
+        batch_update_action_status(action_ids, "confirmed", now)
+        _jobs[job_id]["status"] = "completed"
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+    except Exception as e:
+        try:
+            batch_update_action_status(action_ids, "pending")  # revert so user can retry
+        except Exception:
+            pass
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["error"] = str(e)
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Outreach endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/outreach/plan", status_code=202)
+def start_outreach_plan():
+    """Run a dry-run preview; populates pending actions. Returns a job_id to poll."""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        "job_id": job_id,
+        "status": "pending",
+        "type": "outreach_plan",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    threading.Thread(target=_run_outreach_plan_job, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/outreach/pending")
+def list_pending_actions():
+    """Return all non-canceled outreach actions for the current plan batch."""
+    try:
+        actions = get_actions()
+        return [a for a in actions if a["status"] != "canceled"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# confirm-all must be registered BEFORE /{action_id}/confirm to avoid routing conflict
+@app.post("/outreach/pending/confirm-all", status_code=202)
+def confirm_all_pending():
+    """Execute all still-pending outreach actions."""
+    try:
+        pending = get_actions(status_filter="pending")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    pending_ids = [a["id"] for a in pending]
+    if not pending_ids:
+        return {"message": "No pending actions to confirm", "job_id": None}
+    try:
+        batch_update_action_status(pending_ids, "confirming")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        "job_id": job_id,
+        "status": "pending",
+        "type": "outreach_confirm_all",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    threading.Thread(target=_execute_all_actions_job, args=(job_id, pending_ids), daemon=True).start()
+    return {"job_id": job_id, "status": "pending", "actions": len(pending_ids)}
+
+
+@app.delete("/outreach/pending")
+def cancel_all_pending():
+    """Cancel all pending outreach actions in the Actions sheet."""
+    try:
+        pending = get_actions(status_filter="pending")
+        count = len(pending)
+        cancel_pending_actions()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"cancelled": count}
+
+
+@app.post("/outreach/pending/{action_id}/confirm", status_code=202)
+def confirm_pending_action(action_id: str):
+    """Execute a single pending outreach action."""
+    try:
+        action = get_action_by_id(action_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    if action["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Action is already {action['status']}")
+    try:
+        update_action_status(action_id, "confirming")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        "job_id": job_id,
+        "status": "pending",
+        "type": "outreach_confirm_one",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    threading.Thread(target=_execute_single_action_job, args=(job_id, action), daemon=True).start()
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.delete("/outreach/pending/{action_id}")
+def cancel_pending_action(action_id: str):
+    """Cancel a single pending outreach action in the Actions sheet."""
+    try:
+        action = get_action_by_id(action_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    try:
+        update_action_status(action_id, "canceled")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"cancelled": action_id}
+
+
+# ---------------------------------------------------------------------------
+# Demos endpoint (uses service-account credentials via demos_sheet.py)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/demos")
+def list_demos():
+    """Return all demos enriched with person and company names."""
+    try:
+        demos = get_demos()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    demos.sort(key=lambda d: (d.get("date") or ""))
+    return demos
+
+
+# ---------------------------------------------------------------------------
+# Pipeline / prospect endpoints
+# ---------------------------------------------------------------------------
 
 
 @app.post("/run", status_code=202)

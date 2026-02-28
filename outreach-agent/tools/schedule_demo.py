@@ -153,6 +153,7 @@ class ScheduleDemoTool(BaseTool):
                         created_at=datetime.now(timezone.utc),
                         success=True,
                         error="dry_run – not created",
+                        demo_id=demo.id,
                     ),
                     EmailResult(
                         recipient_email=person.email,
@@ -162,6 +163,7 @@ class ScheduleDemoTool(BaseTool):
                         sent_at=datetime.now(timezone.utc),
                         success=True,
                         error="dry_run – not sent",
+                        person_id=person.id,
                     ),
                 ))
                 continue

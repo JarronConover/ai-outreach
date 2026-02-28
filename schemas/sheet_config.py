@@ -101,6 +101,47 @@ class DemoColumns:
     TOTAL_COLUMNS = 8
 
 
+class ActionColumns:
+    """
+    Sheet: Actions
+    Columns (0-based):
+        A  id
+        B  kind            (email | calendar)
+        C  status          (pending | confirming | confirmed | canceled)
+        D  created_at
+        E  confirmed_at
+        F  email_type      (prospect_outreach | client_outreach | followup_email | demo_invite)
+        G  recipient_email
+        H  recipient_name
+        I  subject
+        J  person_id
+        K  event_type      (demo_discovery | demo_tech | demo_pricing | demo_onboarding | demo_client)
+        L  event_title
+        M  attendees       (comma-separated)
+        N  start_time
+        O  end_time
+        P  demo_id
+    """
+    ID              = 0
+    KIND            = 1
+    STATUS          = 2
+    CREATED_AT      = 3
+    CONFIRMED_AT    = 4
+    EMAIL_TYPE      = 5
+    RECIPIENT_EMAIL = 6
+    RECIPIENT_NAME  = 7
+    SUBJECT         = 8
+    PERSON_ID       = 9
+    EVENT_TYPE      = 10
+    EVENT_TITLE     = 11
+    ATTENDEES       = 12
+    START_TIME      = 13
+    END_TIME        = 14
+    DEMO_ID         = 15
+
+    TOTAL_COLUMNS   = 16
+
+
 class SheetNames:
     """Tab names inside the 'Fellowship CRM' Google Sheets file."""
     PEOPLE    = "People"
@@ -108,3 +149,4 @@ class SheetNames:
     DEMOS     = "Demos"
     EMAILS    = "Emails"
     THREADS   = "Threads"
+    ACTIONS   = "Actions"

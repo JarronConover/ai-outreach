@@ -126,6 +126,7 @@ class ScheduleFollowUpTool(BaseTool):
                     sent_at=datetime.now(timezone.utc),
                     success=True,
                     error="dry_run – not sent",
+                    person_id=pwc.person.id,
                 ))
                 continue
 

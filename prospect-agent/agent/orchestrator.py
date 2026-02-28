@@ -4,8 +4,8 @@ import re
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
-from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from schemas.input import ICPInput
 from schemas.output import PeopleOutput
@@ -71,40 +71,31 @@ class ProspectingAgent:
             f"Return the results as the JSON structure described."
         )
 
-    def _build_agent_with_exclusions(self, existing_emails: list = None) -> any:
-        """Build an agent with existing emails in the system prompt."""
+    def _build_agent_with_exclusions(self, existing_emails: list = None) -> AgentExecutor:
+        """Build an AgentExecutor with existing emails injected into the system prompt."""
         system_prompt = _SYSTEM_PROMPT
         if existing_emails:
             excluded_list = "\n".join([f"- {email}" for email in existing_emails])
             system_prompt += f"\n\nIMPORTANT: Do NOT include these people (already in the system):\n{excluded_list}"
 
-        return create_agent(
-            model=self._llm,
-            tools=[self._search_tool],
-            system_prompt=system_prompt,
-        )
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", "{input}"),
+            MessagesPlaceholder("agent_scratchpad"),
+        ])
+        agent = create_tool_calling_agent(self._llm, [self._search_tool], prompt)
+        return AgentExecutor(agent=agent, tools=[self._search_tool], verbose=False)
 
     def _discover_and_structure_leads(self, icp: ICPInput, existing_emails: list = None) -> PeopleOutput:
         log_trace("start", {"icp": icp.model_dump(), "existing_emails_count": len(existing_emails or [])})
 
-        # Build agent with exclusions
-        agent = self._build_agent_with_exclusions(existing_emails)
+        executor = self._build_agent_with_exclusions(existing_emails)
 
-        prompt = self._build_search_prompt(icp)
-        log_trace("search_prompt", {"prompt": prompt})
+        search_prompt = self._build_search_prompt(icp)
+        log_trace("search_prompt", {"prompt": search_prompt})
 
-        result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
-        # Extract the final AI message content (handle both string and content block formats)
-        messages = result.get("messages", [])
-        if messages:
-            content = messages[-1].content
-            # If content is a list of content blocks, extract text
-            if isinstance(content, list):
-                raw_output = "\n".join([block.get("text", "") if isinstance(block, dict) else str(block) for block in content])
-            else:
-                raw_output = str(content)
-        else:
-            raw_output = ""
+        result = executor.invoke({"input": search_prompt})
+        raw_output = result.get("output", "")
         log_trace("raw_output", {"output": raw_output})
 
         try:

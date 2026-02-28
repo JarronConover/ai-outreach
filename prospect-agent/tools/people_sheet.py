@@ -25,19 +25,29 @@ _PEOPLE_HEADER_ROW = [
 ]
 
 
+_gspread_client = None
+_spreadsheet = None
+_people_ws = None
+
+
 def _get_people_worksheet():
-    """Get or create the People worksheet in Google Sheets."""
+    """Get or create the People worksheet, caching the client and spreadsheet."""
+    global _gspread_client, _spreadsheet, _people_ws
+    if _people_ws is not None:
+        return _people_ws
     creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
     sheet_id = os.environ["GOOGLE_SHEET_ID"]
-    creds = Credentials.from_service_account_file(creds_file, scopes=_SCOPES)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(sheet_id)
+    if _gspread_client is None:
+        creds = Credentials.from_service_account_file(creds_file, scopes=_SCOPES)
+        _gspread_client = gspread.authorize(creds)
+    if _spreadsheet is None:
+        _spreadsheet = _gspread_client.open_by_key(sheet_id)
     try:
-        worksheet = sheet.worksheet("People")
+        _people_ws = _spreadsheet.worksheet("People")
     except gspread.WorksheetNotFound:
-        worksheet = sheet.add_worksheet(title="People", rows=1000, cols=20)
-        worksheet.append_row(_PEOPLE_HEADER_ROW)
-    return worksheet
+        _people_ws = _spreadsheet.add_worksheet(title="People", rows=1000, cols=20)
+        _people_ws.append_row(_PEOPLE_HEADER_ROW)
+    return _people_ws
 
 
 def get_existing_people() -> dict:
