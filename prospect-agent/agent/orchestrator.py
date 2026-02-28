@@ -43,7 +43,7 @@ Be specific and realistic. Use real company names and real people you find throu
 class ProspectingAgent:
     def __init__(self):
         self._llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",
+            model="gemini-2.5-flash",
             google_api_key=os.environ.get("GOOGLE_API_KEY", ""),
             temperature=0.3,
         )
