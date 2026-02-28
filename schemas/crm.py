@@ -274,7 +274,7 @@ class Action(BaseModel):
     recipient_email: Optional[str] = None
     recipient_name: Optional[str] = None
     subject: Optional[str] = None
-    person_id: Optional[str] = None
+    people_id: Optional[str] = None
 
     # Calendar-only fields
     event_type: Optional[str] = None    # demo_discovery | demo_tech | demo_pricing | …
@@ -305,7 +305,7 @@ class Action(BaseModel):
             recipient_email=_c(AC.RECIPIENT_EMAIL) or None,
             recipient_name=_c(AC.RECIPIENT_NAME) or None,
             subject=_c(AC.SUBJECT) or None,
-            person_id=_c(AC.PERSON_ID) or None,
+            people_id=_c(AC.PEOPLE_ID) or None,
             event_type=_c(AC.EVENT_TYPE) or None,
             event_title=_c(AC.EVENT_TITLE) or None,
             attendees=attendees,
@@ -326,7 +326,7 @@ class Action(BaseModel):
             self.recipient_email or "",
             self.recipient_name or "",
             self.subject or "",
-            self.person_id or "",
+            self.people_id or "",
             self.event_type or "",
             self.event_title or "",
             ", ".join(self.attendees) if self.attendees else "",
@@ -347,7 +347,7 @@ class Action(BaseModel):
             "recipient_email": self.recipient_email,
             "recipient_name": self.recipient_name,
             "subject": self.subject,
-            "person_id": self.person_id,
+            "people_id": self.people_id,
             "event_type": self.event_type,
             "event_title": self.event_title,
             "attendees": self.attendees,

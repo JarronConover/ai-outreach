@@ -324,7 +324,7 @@ def _run_outreach_plan_job(job_id: str):
                 "recipient_email": e.recipient_email,
                 "recipient_name": e.recipient_name,
                 "subject": e.subject,
-                "person_id": e.person_id,
+                "people_id": e.person_id,
                 "status": "pending",
                 "created_at": now,
             })
