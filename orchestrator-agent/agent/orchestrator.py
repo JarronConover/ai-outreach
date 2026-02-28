@@ -252,19 +252,26 @@ class OrchestratorAgent:
         Temporarily load the outreach-agent into sys.path/sys.modules, build an
         OutreachOrchestrator, call fn(orchestrator), then restore the module state.
         """
-        # Also swap out the orchestrator-agent's local `schemas` package so the
-        # outreach-agent can import `schemas.crm` from the project root instead.
+        # Save/clear all module keys used by the outreach-agent plus the `schemas`
+        # package entries.  We must also temporarily remove _ORCHESTRATOR_AGENT_DIR
+        # from sys.path because it has its own schemas/ subdirectory that would
+        # shadow the project root's schemas/crm.py when those modules are re-imported.
         _schema_keys = [
             "schemas", "schemas.crm", "schemas.sheet_config",
             "schemas.input", "schemas.output",
         ]
         _all_keys = _OA_MODULE_KEYS + _schema_keys
         saved = {k: sys.modules.get(k) for k in _all_keys}
+        _orch_dir_in_path = _ORCHESTRATOR_AGENT_DIR in sys.path
         _added_outreach = _OUTREACH_AGENT_DIR not in sys.path
         _added_root = _PROJECT_ROOT not in sys.path
         try:
             for k in _all_keys:
                 sys.modules.pop(k, None)
+            # Remove orchestrator-agent dir so its local schemas/ doesn't shadow
+            # the project root's schemas/crm.py during outreach-agent import.
+            if _orch_dir_in_path:
+                sys.path.remove(_ORCHESTRATOR_AGENT_DIR)
             if _added_outreach:
                 sys.path.insert(0, _OUTREACH_AGENT_DIR)
             if _added_root:
@@ -315,6 +322,9 @@ class OrchestratorAgent:
                     sys.path.remove(_PROJECT_ROOT)
                 except ValueError:
                     pass
+            # Restore orchestrator-agent dir if we removed it
+            if _orch_dir_in_path and _ORCHESTRATOR_AGENT_DIR not in sys.path:
+                sys.path.insert(0, _ORCHESTRATOR_AGENT_DIR)
             for k, v in saved.items():
                 if v is None:
                     sys.modules.pop(k, None)
