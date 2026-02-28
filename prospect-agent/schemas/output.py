@@ -12,7 +12,7 @@ class Person(BaseModel):
     email: str
     title: str
     linkedin: Optional[str] = None
-    stage: str = "PROSPECTING"
+    stage: str = "prospect"
     last_response: Optional[datetime] = None
     last_contact: Optional[datetime] = None
     last_demo_id: Optional[str] = None

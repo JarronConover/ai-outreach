@@ -84,7 +84,7 @@ _POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "15"))  # seconds
 
 # Index positions in the People sheet header row
 _IDX_ID = 0
-_IDX_LAST_CONTACT = 9
+_IDX_LAST_CONTACT = 11
 
 
 def _start_outreach_job() -> str:
@@ -208,7 +208,7 @@ class RunRequest(BaseModel):
     enable_post_deduplication: bool = True
 
 
-def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool):
+def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool, industry: str = ""):
     _jobs[job_id]["status"] = "running"
     _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
     try:
@@ -227,7 +227,7 @@ def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool):
             duplicates_skipped = len(duplicates)
 
         if people_dicts:
-            append_people(people_dicts)
+            append_people(people_dicts, industry=industry)
 
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
@@ -320,7 +320,7 @@ def start_prospect(req: ProspectRequest = ProspectRequest()):
 
     thread = threading.Thread(
         target=_run_prospect_job,
-        args=(job_id, icp, req.enable_post_deduplication),
+        args=(job_id, icp, req.enable_post_deduplication, icp.industry),
         daemon=True,
     )
     thread.start()
