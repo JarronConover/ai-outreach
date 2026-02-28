@@ -1,0 +1,282 @@
+"""
+Tool 3 – Schedule Demo Meetings
+
+For every Demo record in the Demos sheet where:
+  • status = "scheduled"
+  • discovery_date is set (the date/time of the upcoming meeting)
+  • calendar_event_id is empty (no Google Calendar event yet)
+
+This tool:
+  1. Looks up the associated Person (via people_id) and Company (via company_id).
+  2. Creates a Google Calendar event and invites the contact – Google
+     automatically sends them a calendar invite.
+  3. Sends a personalised confirmation email via Gmail.
+  4. Writes the new event ID back to Demos.calendar_event_id (column P).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from agent.exceptions import DemoSchedulingError, GmailAPIError
+from agent.results import CalendarEventResult, EmailResult
+from schemas.crm import CRMContext, Demo, DemoStatus
+from schemas.sheet_config import DemoColumns, SheetNames
+from tools.tool import BaseTool
+
+
+def _build_invite_email(
+    person_name: str,
+    person_email: str,
+    company_name: str,
+    sender_name: str,
+    our_company: str,
+    demo_start: datetime,
+    meet_link: str | None,
+    stage_label: str,
+) -> tuple[str, str]:
+    date_str = demo_start.strftime("%A, %B %-d at %-I:%M %p")
+    meet_section = (
+        f'<p>Join via Google Meet: <a href="{meet_link}">{meet_link}</a></p>'
+        if meet_link else ""
+    )
+    subject = f"{stage_label} Confirmed – {our_company} × {company_name}"
+    html_body = f"""
+<html>
+  <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+    <p>Hi {person_name},</p>
+
+    <p>
+      Your <strong>{stage_label}</strong> with <strong>{our_company}</strong>
+      is confirmed for <strong>{date_str}</strong>.
+    </p>
+
+    {meet_section}
+
+    <p>
+      We're looking forward to walking you through the platform and answering
+      any questions you have. A calendar invite has been sent to
+      <em>{person_email}</em> – please reach out if you need to reschedule.
+    </p>
+
+    <p>
+      Talk soon,<br/>
+      <strong>{sender_name}</strong><br/>
+      {our_company}
+    </p>
+  </body>
+</html>
+"""
+    return subject, html_body
+
+
+class ScheduleDemoTool(BaseTool):
+    """
+    Creates calendar events and sends confirmation emails for scheduled demos.
+
+    Filtering criteria (Demos sheet):
+        status          = "scheduled"
+        discovery_date  is set
+        calendar_event_id is empty
+
+    Sheet updates on success (Demos tab):
+        calendar_event_id ← Google Calendar event ID
+    """
+
+    tool_name = "schedule_demo"
+
+    def execute(self, crm: CRMContext) -> list[tuple[CalendarEventResult, EmailResult]]:
+        results: list[tuple[CalendarEventResult, EmailResult]] = []
+
+        to_schedule = [
+            demo for demo in crm.demos
+            if demo.status.lower() == DemoStatus.SCHEDULED
+            and demo.discovery_date is not None
+            and not demo.calendar_event_id
+        ]
+
+        self.tracer.log_tool_start(
+            self.tool_name,
+            {"demos_to_schedule": len(to_schedule)},
+        )
+
+        for demo in to_schedule:
+            # Resolve person and company from the CRM context
+            person = crm.people_by_id.get(demo.people_id)
+            if not person or not person.email:
+                self.tracer.log_calendar_event_skipped(
+                    demo.people_id, "person not found or missing email"
+                )
+                continue
+
+            company = crm.companies.get(demo.company_id)
+            company_name = company.name if company else "their company"
+
+            demo_start: datetime = demo.discovery_date  # type: ignore[assignment]
+            demo_end = demo_start + timedelta(minutes=self.config.demo_duration_minutes)
+            attendees = [person.email, self.config.sender_email]
+            stage_label = demo.current_stage_label
+
+            if self.config.dry_run:
+                self.tracer.log_calendar_event_skipped(person.email, "dry_run=True")
+                self.tracer.log_email_skipped(person.email, "dry_run=True")
+                results.append((
+                    CalendarEventResult(
+                        event_title=f"Discovery: {company_name}",
+                        attendees=attendees,
+                        start_time=demo_start,
+                        end_time=demo_end,
+                        event_type="demo_discovery",
+                        created_at=datetime.now(timezone.utc),
+                        success=True,
+                        error="dry_run – not created",
+                    ),
+                    EmailResult(
+                        recipient_email=person.email,
+                        recipient_name=person.name,
+                        subject=f"Discovery Confirmed – {self.config.company_name}",
+                        email_type="demo_invite",
+                        sent_at=datetime.now(timezone.utc),
+                        success=True,
+                        error="dry_run – not sent",
+                    ),
+                ))
+                continue
+
+            # --- 1. Create Google Calendar event ---
+            try:
+                event_resp = self.api.create_event(
+                    summary=f"Discovery: {company_name} × {self.config.company_name}",
+                    description=(
+                        f"Discovery call with {person.name} from {company_name}.\n\n"
+                        f"Demo ID: {demo.id}\n"
+                        f"Notes: {demo.discovery or 'N/A'}"
+                    ),
+                    start=demo_start,
+                    end=demo_end,
+                    attendees=attendees,
+                    timezone=self.config.calendar_timezone,
+                    add_meet=self.config.google_meet,
+                )
+                event_id = event_resp.get("id", "")
+                event_link = event_resp.get("htmlLink", "")
+                meet_link = (
+                    event_resp.get("conferenceData", {})
+                    .get("entryPoints", [{}])[0]
+                    .get("uri")
+                )
+
+                # Write event ID back to the Demos sheet (column P)
+                self.api.update_cell(
+                    self.config.spreadsheet_id,
+                    SheetNames.DEMOS,
+                    demo.row_index,
+                    DemoColumns.CALENDAR_EVENT_ID,
+                    event_id,
+                )
+
+                self.tracer.log_calendar_event_created(
+                    event_id=event_id,
+                    event_title=f"Discovery: {company_name}",
+                    attendees=attendees,
+                    start_time=demo_start.isoformat(),
+                    end_time=demo_end.isoformat(),
+                    event_type="demo_discovery",
+                )
+                cal_result = CalendarEventResult(
+                    event_id=event_id,
+                    event_title=f"Discovery: {company_name}",
+                    event_link=event_link,
+                    attendees=attendees,
+                    start_time=demo_start,
+                    end_time=demo_end,
+                    event_type="demo_discovery",
+                    created_at=datetime.now(timezone.utc),
+                    success=True,
+                )
+
+            except Exception as exc:
+                err = DemoSchedulingError(
+                    f"Calendar creation failed for demo {demo.id} ({person.email}): {exc}"
+                )
+                self.tracer.log_error(err, {"demo_id": demo.id})
+                results.append((
+                    CalendarEventResult(
+                        event_title=f"Discovery: {company_name}",
+                        attendees=attendees,
+                        start_time=demo_start,
+                        end_time=demo_end,
+                        event_type="demo_discovery",
+                        created_at=datetime.now(timezone.utc),
+                        success=False,
+                        error=str(err),
+                    ),
+                    EmailResult(
+                        recipient_email=person.email,
+                        recipient_name=person.name,
+                        subject="",
+                        email_type="demo_invite",
+                        sent_at=datetime.now(timezone.utc),
+                        success=False,
+                        error="Calendar event failed; email skipped.",
+                    ),
+                ))
+                continue
+
+            # --- 2. Send confirmation email ---
+            subject, html_body = _build_invite_email(
+                person_name=person.name,
+                person_email=person.email,
+                company_name=company_name,
+                sender_name=self.config.sender_name,
+                our_company=self.config.company_name,
+                demo_start=demo_start,
+                meet_link=meet_link,
+                stage_label=stage_label,
+            )
+            try:
+                email_resp = self.api.send_email(
+                    sender=self._sender_address(),
+                    to=person.email,
+                    subject=subject,
+                    html_body=html_body,
+                )
+                self.tracer.log_email_sent(
+                    recipient_email=person.email,
+                    recipient_name=person.name,
+                    subject=subject,
+                    message_id=email_resp.get("id", ""),
+                    email_type="demo_invite",
+                )
+                email_result = EmailResult(
+                    recipient_email=person.email,
+                    recipient_name=person.name,
+                    subject=subject,
+                    message_id=email_resp.get("id"),
+                    email_type="demo_invite",
+                    sent_at=datetime.now(timezone.utc),
+                    success=True,
+                )
+            except GmailAPIError as exc:
+                self.tracer.log_error(exc, {"demo_id": demo.id})
+                email_result = EmailResult(
+                    recipient_email=person.email,
+                    recipient_name=person.name,
+                    subject=subject,
+                    email_type="demo_invite",
+                    sent_at=datetime.now(timezone.utc),
+                    success=False,
+                    error=str(exc),
+                )
+
+            results.append((cal_result, email_result))
+
+        self.tracer.log_tool_end(
+            self.tool_name,
+            success=True,
+            result_summary=(
+                f"{sum(1 for c, _ in results if c.success)}/{len(to_schedule)} "
+                "calendar events created"
+            ),
+        )
+        return results
