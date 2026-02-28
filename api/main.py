@@ -627,13 +627,12 @@ def get_stats():
     people = get_people_dicts()
     demos = get_demos_dicts()
 
-    stages = [p.get("stage", "").strip().upper() for p in people]
+    stages = [p.get("stage", "").strip().lower() for p in people]
     demo_statuses = [d.get("status", "").strip().lower() for d in demos]
 
     return {
         "total_prospects": len(people),
-        "interested": sum(1 for s in stages if s == "INTERESTED"),
-        "clients": sum(1 for s in stages if s == "CLIENT"),
+        "clients": sum(1 for s in stages if s not in ("prospect", "prospecting", "")),
         "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
         "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
     }
@@ -662,13 +661,12 @@ def get_dashboard():
 
     demos.sort(key=lambda d: (d.get("date") or ""))
 
-    stages = [p.get("stage", "").strip().upper() for p in people]
+    stages = [p.get("stage", "").strip().lower() for p in people]
     demo_statuses = [d.get("status", "").strip().lower() for d in demos]
 
     stats = {
         "total_prospects": len(people),
-        "interested": sum(1 for s in stages if s == "INTERESTED"),
-        "clients": sum(1 for s in stages if s == "CLIENT"),
+        "clients": sum(1 for s in stages if s not in ("prospect", "prospecting", "")),
         "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
         "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
     }
