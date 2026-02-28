@@ -69,6 +69,22 @@ def append_people(people_list: List[dict]) -> str:
     try:
         worksheet = _get_people_worksheet()
         for person in people_list:
+            # Convert datetime objects to ISO format strings
+            created_at = person.get("created_at", datetime.utcnow())
+            updated_at = person.get("updated_at", datetime.utcnow())
+            last_response = person.get("last_response")
+            last_contact = person.get("last_contact")
+
+            # Convert to ISO strings if they're datetime objects
+            if hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            if hasattr(updated_at, "isoformat"):
+                updated_at = updated_at.isoformat()
+            if hasattr(last_response, "isoformat"):
+                last_response = last_response.isoformat()
+            if hasattr(last_contact, "isoformat"):
+                last_contact = last_contact.isoformat()
+
             row = [
                 person.get("id", ""),
                 person.get("name", ""),
@@ -78,10 +94,10 @@ def append_people(people_list: List[dict]) -> str:
                 person.get("phone", ""),
                 person.get("title", ""),
                 person.get("stage", "PROSPECTING"),
-                person.get("last_response", ""),
-                person.get("last_contact", ""),
-                person.get("created_at", datetime.utcnow().isoformat()),
-                person.get("updated_at", datetime.utcnow().isoformat()),
+                last_response or "",
+                last_contact or "",
+                created_at,
+                updated_at,
             ]
             worksheet.append_row(row)
         return f"Success: added {len(people_list)} people to Google Sheets."
