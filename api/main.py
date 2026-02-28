@@ -7,6 +7,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -73,6 +74,13 @@ finally:
 load_dotenv()
 
 app = FastAPI(title="AI Outreach API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # In-memory job store
 _jobs: dict[str, dict] = {}
@@ -255,6 +263,18 @@ def get_job(job_id: str):
 def list_jobs():
     """List all jobs."""
     return list(_jobs.values())
+
+
+@app.get("/people")
+def list_people():
+    """List all prospects from Google Sheets."""
+    raw = get_existing_people()
+    header = ["id", "name", "company_id", "email", "linkedin", "phone", "title", "stage", "last_response", "last_contact", "created_at", "updated_at"]
+    result = []
+    for row in raw.values():
+        person = {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
+        result.append(person)
+    return result
 
 
 @app.get("/health")
