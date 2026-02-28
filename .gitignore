@@ -58,5 +58,9 @@ __pycache__/
 dist/
 build/
 credentials.json
+<<<<<<< HEAD
 myenv/
+>>>>>>> main
+=======
+/myvenv/
 >>>>>>> main
