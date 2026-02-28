@@ -66,7 +66,7 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh }: PeopleTab
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#e5e7eb] bg-white/30">
-                {["Name", "Title", "Company", "Email", "LinkedIn", "Stage"].map((h) => (
+                {["Name", "Title", "Company", "LinkedIn", "Email", "Stage"].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase tracking-wide"
@@ -87,13 +87,6 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh }: PeopleTab
                   </td>
                   <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.title || "—"}</td>
                   <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.company_name || "—"}</td>
-                  <td className="px-4 py-3 text-[#4b5563]">
-                    {p.email ? (
-                      <a href={`mailto:${p.email}`} className="text-[#0d9488] hover:underline">
-                        {p.email}
-                      </a>
-                    ) : "—"}
-                  </td>
                   <td className="px-4 py-3">
                     {p.linkedin ? (
                       <a
@@ -108,6 +101,13 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh }: PeopleTab
                     ) : (
                       <span className="text-[#9ca3af]">—</span>
                     )}
+                  </td>
+                  <td className="px-4 py-3 text-[#4b5563]">
+                    {p.email ? (
+                      <a href={`mailto:${p.email}`} className="text-[#0d9488] hover:underline">
+                        {p.email}
+                      </a>
+                    ) : "—"}
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant={stageBadgeVariant(p.stage)}>
