@@ -36,6 +36,8 @@ class People(BaseModel):
     phone: Optional[str] = None
     title: str
     stage: PeopleStage
+    last_demo_id: Optional[str] = None
+    next_demo_id: Optional[str] = None
     last_response: Optional[datetime] = None
     last_contact: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
