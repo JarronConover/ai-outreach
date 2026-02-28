@@ -254,6 +254,8 @@ def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool, indus
 
         if people_dicts:
             append_people(people_dicts, industry=industry)
+            # Immediately plan outreach for new contacts rather than waiting for the poller
+            _start_outreach_job()
 
         # Bust the dashboard cache so the next /dashboard fetch reflects new people
         _dashboard_cache["expires_at"] = 0.0
@@ -287,6 +289,12 @@ def _run_pipeline_job(job_id: str, pipeline_input: PipelineInput):
     try:
         agent = OrchestratorAgent()
         result = agent.run(pipeline_input)
+
+        # If prospecting wrote new people, immediately plan outreach for them
+        prospect_stage = next((s for s in result.stages if s.stage == "prospect"), None)
+        if prospect_stage and prospect_stage.people_written:
+            _start_outreach_job()
+            _dashboard_cache["expires_at"] = 0.0
 
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
