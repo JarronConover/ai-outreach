@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from schemas.input import ICPInput
-from schemas.output import Lead, LeadsOutput
+from schemas.output import Person, PeopleOutput
 from agent.orchestrator import ProspectingAgent
 
 
@@ -17,24 +17,31 @@ def sample_icp():
 
 
 @pytest.fixture
-def mock_leads_output():
-    return LeadsOutput(
-        leads=[
-            Lead(id="1", name="Alice", company="TechCorp", email="alice@techcorp.com", title="CTO"),
+def mock_people_output():
+    return PeopleOutput(
+        people=[
+            Person(
+                id="1",
+                name="Alice",
+                company_id="techcorp",
+                email="alice@techcorp.com",
+                title="CTO",
+                linkedin="https://linkedin.com/in/alice",
+            ),
         ]
     )
 
 
-def test_run_returns_leads_output(sample_icp, mock_leads_output):
+def test_run_returns_people_output(sample_icp, mock_people_output):
     agent = ProspectingAgent()
-    with patch.object(agent, "_discover_and_structure_leads", return_value=mock_leads_output):
+    with patch.object(agent, "_discover_and_structure_leads", return_value=mock_people_output):
         result = agent.run(sample_icp)
-    assert isinstance(result, LeadsOutput)
-    assert len(result.leads) >= 1
+    assert isinstance(result, PeopleOutput)
+    assert len(result.people) >= 1
 
 
-def test_run_calls_discover(sample_icp, mock_leads_output):
+def test_run_calls_discover(sample_icp, mock_people_output):
     agent = ProspectingAgent()
-    with patch.object(agent, "_discover_and_structure_leads", return_value=mock_leads_output) as mock_discover:
+    with patch.object(agent, "_discover_and_structure_leads", return_value=mock_people_output) as mock_discover:
         agent.run(sample_icp)
     mock_discover.assert_called_once_with(sample_icp)

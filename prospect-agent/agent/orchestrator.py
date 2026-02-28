@@ -8,7 +8,7 @@ from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
 from schemas.input import ICPInput
-from schemas.output import LeadsOutput
+from schemas.output import PeopleOutput
 from agent.tracer import log_trace
 from agent.exceptions import StructuredOutputError
 
@@ -20,24 +20,31 @@ You have access to a web search tool. Use it to:
 1. First, search for real companies that match the ICP's industry, size, and location.
 2. Then, for each company you find, search for specific people with the target roles (e.g. "VP Engineering at [Company]").
 3. Try to find their business email if possible (look for company email format or LinkedIn/company page hints).
+4. Search for their LinkedIn profile URL when possible (e.g. "linkedin.com/in/...").
 
 After your research, return a JSON object with this exact structure:
 {
-  "leads": [
+  "people": [
     {
       "id": "unique-string",
       "name": "Full Name",
-      "company": "Company Name",
+      "company_id": "company-name-slugified",
       "email": "email@company.com",
       "title": "Their Job Title",
+      "linkedin": "https://linkedin.com/in/username",
       "stage": "PROSPECTING",
-      "last_message": "",
-      "next_action": "Send outreach email"
+      "last_response": null,
+      "last_contact": null,
+      "created_at": "2026-02-28T00:00:00",
+      "updated_at": "2026-02-28T00:00:00"
     }
   ]
 }
 
-Be specific and realistic. Use real company names and real people you find through search. If you cannot find a specific person's email, make a reasonable guess using the company's email format."""
+Be specific and realistic. Use real company names and real people you find through search.
+- If you cannot find a specific person's email, make a reasonable guess using the company's email format.
+- For company_id, use a slugified version of the company name (e.g., "mind-studios" from "Mind Studios").
+- For linkedin, only include if you found it; otherwise set to null."""
 
 
 class ProspectingAgent:
@@ -69,7 +76,7 @@ class ProspectingAgent:
             f"Return the results as the JSON structure described."
         )
 
-    def _discover_and_structure_leads(self, icp: ICPInput) -> LeadsOutput:
+    def _discover_and_structure_leads(self, icp: ICPInput) -> PeopleOutput:
         log_trace("start", {"icp": icp.model_dump()})
         prompt = self._build_search_prompt(icp)
         log_trace("search_prompt", {"prompt": prompt})
@@ -89,15 +96,15 @@ class ProspectingAgent:
         log_trace("raw_output", {"output": raw_output})
 
         try:
-            json_match = re.search(r'\{[\s\S]*"leads"[\s\S]*\}', raw_output)
+            json_match = re.search(r'\{[\s\S]*"people"[\s\S]*\}', raw_output)
             if not json_match:
-                raise StructuredOutputError("No JSON leads block found in agent output.")
+                raise StructuredOutputError("No JSON people block found in agent output.")
             data = json.loads(json_match.group())
-            leads_output = LeadsOutput(**data)
-            log_trace("structured_output", {"leads_count": len(leads_output.leads)})
-            return leads_output
+            people_output = PeopleOutput(**data)
+            log_trace("structured_output", {"people_count": len(people_output.people)})
+            return people_output
         except Exception as e:
             raise StructuredOutputError(f"Failed to parse structured output: {e}\nRaw: {raw_output}") from e
 
-    def run(self, icp: ICPInput) -> LeadsOutput:
+    def run(self, icp: ICPInput) -> PeopleOutput:
         return self._discover_and_structure_leads(icp)

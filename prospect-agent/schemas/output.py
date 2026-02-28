@@ -1,18 +1,24 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 import uuid
 
 
-class Lead(BaseModel):
+class Person(BaseModel):
+    """Person record for the People sheet."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    company: str
+    company_id: str
     email: str
     title: str
+    linkedin: Optional[str] = None
     stage: str = "PROSPECTING"
-    last_message: str = ""
-    next_action: str = "Send outreach email"
+    last_response: Optional[datetime] = None
+    last_contact: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class LeadsOutput(BaseModel):
-    leads: List[Lead]
+class PeopleOutput(BaseModel):
+    """Output containing a list of Person records."""
+    people: List[Person]

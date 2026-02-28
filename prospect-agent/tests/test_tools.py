@@ -1,29 +1,40 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from schemas.output import Lead, LeadsOutput
-from tools.tool import write_leads_to_sheet
+from tools.people_sheet import append_people
 
 
 @pytest.fixture
-def sample_leads():
-    return LeadsOutput(
-        leads=[
-            Lead(id="1", name="Alice", company="TechCorp", email="alice@techcorp.com", title="CTO"),
-            Lead(id="2", name="Bob", company="TechCorp", email="bob@techcorp.com", title="VP Eng"),
-        ]
-    )
+def sample_people():
+    return [
+        {
+            "id": "1",
+            "name": "Alice",
+            "company_id": "techcorp",
+            "email": "alice@techcorp.com",
+            "title": "CTO",
+            "linkedin": "https://linkedin.com/in/alice",
+        },
+        {
+            "id": "2",
+            "name": "Bob",
+            "company_id": "techcorp",
+            "email": "bob@techcorp.com",
+            "title": "VP Eng",
+            "linkedin": None,
+        },
+    ]
 
 
-def test_write_leads_to_sheet_calls_append(sample_leads):
+def test_append_people_calls_append_row(sample_people):
     mock_worksheet = MagicMock()
-    with patch("tools.tool._get_worksheet", return_value=mock_worksheet):
-        result = write_leads_to_sheet(sample_leads)
+    with patch("tools.people_sheet._get_people_worksheet", return_value=mock_worksheet):
+        result = append_people(sample_people)
     assert mock_worksheet.append_row.call_count == 2
-    assert "2 leads" in result
+    assert "2 people" in result
 
 
-def test_write_leads_to_sheet_returns_success_message(sample_leads):
+def test_append_people_returns_success_message(sample_people):
     mock_worksheet = MagicMock()
-    with patch("tools.tool._get_worksheet", return_value=mock_worksheet):
-        result = write_leads_to_sheet(sample_leads)
+    with patch("tools.people_sheet._get_people_worksheet", return_value=mock_worksheet):
+        result = append_people(sample_people)
     assert "success" in result.lower()

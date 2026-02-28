@@ -1,6 +1,6 @@
 import pytest
 from schemas.input import ICPInput
-from schemas.output import Lead, LeadsOutput
+from schemas.output import Person, PeopleOutput
 
 
 def test_icp_input_valid():
@@ -26,22 +26,40 @@ def test_icp_input_defaults():
     assert icp.num_people_per_company == 2
 
 
-def test_lead_valid():
-    lead = Lead(
+def test_person_valid():
+    person = Person(
         id="abc-123",
         name="Jane Smith",
-        company="Acme Corp",
+        company_id="acme-corp",
         email="jane@acme.com",
         title="VP of Engineering",
     )
-    assert lead.stage == "PROSPECTING"
-    assert lead.next_action == "Send outreach email"
+    assert person.stage == "PROSPECTING"
+    assert person.linkedin is None
 
 
-def test_leads_output_valid():
-    output = LeadsOutput(
-        leads=[
-            Lead(id="1", name="Jane", company="Acme", email="jane@acme.com", title="CTO")
+def test_person_with_linkedin():
+    person = Person(
+        id="1",
+        name="Jane",
+        company_id="acme",
+        email="jane@acme.com",
+        title="CTO",
+        linkedin="https://linkedin.com/in/jane",
+    )
+    assert person.linkedin == "https://linkedin.com/in/jane"
+
+
+def test_people_output_valid():
+    output = PeopleOutput(
+        people=[
+            Person(
+                id="1",
+                name="Jane",
+                company_id="acme",
+                email="jane@acme.com",
+                title="CTO",
+            )
         ]
     )
-    assert len(output.leads) == 1
+    assert len(output.people) == 1
