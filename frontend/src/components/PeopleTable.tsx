@@ -7,14 +7,16 @@ interface Person {
   name: string;
   company_id: string;
   email: string;
-  linkedin: string;
   phone: string;
+  linkedin: string;
   title: string;
   stage: string;
+  last_demo_id: string;
+  next_demo_id: string;
   last_response: string;
   last_contact: string;
-  created_at: string;
-  updated_at: string;
+  last_response_date: string;
+  last_contact_date: string;
 }
 
 function stageBadgeVariant(stage: string): "teal" | "green" | "gray" {

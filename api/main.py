@@ -359,7 +359,7 @@ def list_jobs():
 def list_people():
     """List all prospects from Google Sheets."""
     raw = get_existing_people()
-    header = ["id", "name", "company_id", "email", "linkedin", "phone", "title", "stage", "last_response", "last_contact", "created_at", "updated_at"]
+    header = ["id", "name", "company_id", "email", "phone", "linkedin", "title", "stage", "last_demo_id", "next_demo_id", "last_response", "last_contact", "last_response_date", "last_contact_date"]
     result = []
     for row in raw.values():
         person = {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
