@@ -103,21 +103,17 @@ _IDX_LAST_CONTACT = 11
 
 
 def _start_outreach_job() -> str:
-    """Enqueue a pipeline job for the outreach stage only."""
+    """Enqueue an outreach plan job that creates pending actions."""
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {
         "job_id": job_id,
         "status": "pending",
-        "type": "poller_outreach",
+        "type": "outreach_plan",
         "created_at": datetime.utcnow().isoformat(),
     }
-    pipeline_input = PipelineInput(
-        **_DEFAULT_ICP.model_dump(),
-        stages=["outreach"],
-    )
     thread = threading.Thread(
-        target=_run_pipeline_job,
-        args=(job_id, pipeline_input),
+        target=_run_outreach_plan_job,
+        args=(job_id,),
         daemon=True,
     )
     thread.start()
