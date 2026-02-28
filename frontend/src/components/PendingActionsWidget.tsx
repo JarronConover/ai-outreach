@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, CheckCircle2, ClipboardList, Mail, Calendar, Check, CheckCheck } from "lucide-react";
+import { Loader2, CheckCircle2, ClipboardList, Mail, Calendar, Check, CheckCheck, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useJob } from "@/hooks/useJob";
@@ -55,6 +55,8 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmingIds, setConfirmingIds] = useState<Set<string>>(new Set());
+  const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set());
+  const [isCancelingAll, setIsCancelingAll] = useState(false);
   const [bulkJobId, setBulkJobId] = useState<string | null>(null);
   const [isBulkConfirming, setIsBulkConfirming] = useState(false);
 
@@ -142,6 +144,44 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
     }
   }
 
+  async function handleCancelOne(actionId: string) {
+    setCancelingIds((prev) => new Set(prev).add(actionId));
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/outreach/pending/${actionId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `HTTP ${res.status}`);
+      }
+      await fetchPending();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Cancel failed.");
+    } finally {
+      setCancelingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(actionId);
+        return next;
+      });
+    }
+  }
+
+  async function handleCancelAll() {
+    setIsCancelingAll(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/outreach/pending", { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `HTTP ${res.status}`);
+      }
+      await fetchPending();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Cancel all failed.");
+    } finally {
+      setIsCancelingAll(false);
+    }
+  }
+
   async function pollUntilDone(jobId: string, maxMs = 30000): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < maxMs) {
@@ -192,24 +232,40 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
 
       {!loading && actions.length > 0 && (
         <>
-          {/* Confirm All bar */}
+          {/* Confirm All / Cancel All bar */}
           <div className="flex items-center justify-between px-5 py-3 border-b border-[#f3f4f6] bg-[#f9fafb]">
             <p className="text-xs text-[#6b7280]">
               {actions.length} action{actions.length !== 1 ? "s" : ""} awaiting approval
             </p>
-            <Button
-              size="sm"
-              className="h-7 text-xs gap-1.5"
-              onClick={handleConfirmAll}
-              disabled={isBulkConfirming}
-            >
-              {isBulkConfirming ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <CheckCheck className="size-3" />
-              )}
-              Confirm All
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5 text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600"
+                onClick={handleCancelAll}
+                disabled={isCancelingAll || isBulkConfirming}
+              >
+                {isCancelingAll ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <XCircle className="size-3" />
+                )}
+                Cancel All
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={handleConfirmAll}
+                disabled={isBulkConfirming || isCancelingAll}
+              >
+                {isBulkConfirming ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <CheckCheck className="size-3" />
+                )}
+                Confirm All
+              </Button>
+            </div>
           </div>
 
           {/* Action grid — 2 columns on wider screens */}
@@ -260,19 +316,34 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
                       </>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleConfirmOne(action.id)}
-                    disabled={isConfirming || isBulkConfirming}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-[#0d9488] text-white hover:bg-[#0f766e] disabled:opacity-50 transition-colors shrink-0 self-center"
-                    title="Confirm"
-                  >
-                    {isConfirming ? (
-                      <Loader2 className="size-2.5 animate-spin" />
-                    ) : (
-                      <Check className="size-2.5" />
-                    )}
-                    Confirm
-                  </button>
+                  <div className="flex flex-col gap-1 shrink-0 self-center">
+                    <button
+                      onClick={() => handleConfirmOne(action.id)}
+                      disabled={isConfirming || isBulkConfirming || cancelingIds.has(action.id) || isCancelingAll}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-[#0d9488] text-white hover:bg-[#0f766e] disabled:opacity-50 transition-colors"
+                      title="Confirm"
+                    >
+                      {isConfirming ? (
+                        <Loader2 className="size-2.5 animate-spin" />
+                      ) : (
+                        <Check className="size-2.5" />
+                      )}
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => handleCancelOne(action.id)}
+                      disabled={cancelingIds.has(action.id) || isConfirming || isBulkConfirming || isCancelingAll}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium border border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 transition-colors"
+                      title="Cancel"
+                    >
+                      {cancelingIds.has(action.id) ? (
+                        <Loader2 className="size-2.5 animate-spin" />
+                      ) : (
+                        <X className="size-2.5" />
+                      )}
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               );
             })}

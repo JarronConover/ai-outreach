@@ -114,7 +114,7 @@ class ActionColumns:
         G  recipient_email
         H  recipient_name
         I  subject
-        J  person_id
+        J  people_id
         K  event_type      (demo_discovery | demo_tech | demo_pricing | demo_onboarding | demo_client)
         L  event_title
         M  attendees       (comma-separated)
@@ -131,7 +131,7 @@ class ActionColumns:
     RECIPIENT_EMAIL = 6
     RECIPIENT_NAME  = 7
     SUBJECT         = 8
-    PERSON_ID       = 9
+    PEOPLE_ID       = 9
     EVENT_TYPE      = 10
     EVENT_TITLE     = 11
     ATTENDEES       = 12

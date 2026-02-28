@@ -212,7 +212,7 @@ class OrchestratorAgent:
 
             for action in actions:
                 if action["kind"] == "email":
-                    pid = action.get("person_id")
+                    pid = action.get("people_id")
                     if not pid:
                         continue
                     etype = action.get("email_type", "")

@@ -14,7 +14,7 @@ Column layout matches schemas/sheet_config.ActionColumns (0-based):
     G  recipient_email
     H  recipient_name
     I  subject
-    J  person_id
+    J  people_id
     K  event_type
     L  event_title
     M  attendees       (comma-separated)
@@ -36,7 +36,7 @@ _SCOPES = [
 
 _HEADER = [
     "id", "kind", "status", "created_at", "confirmed_at",
-    "email_type", "recipient_email", "recipient_name", "subject", "person_id",
+    "email_type", "recipient_email", "recipient_name", "subject", "people_id",
     "event_type", "event_title", "attendees", "start_time", "end_time", "demo_id",
 ]
 
@@ -87,7 +87,7 @@ def _row_to_dict(row: list) -> dict:
         "recipient_email": _c(6) or None,
         "recipient_name": _c(7) or None,
         "subject": _c(8) or None,
-        "person_id": _c(9) or None,
+        "people_id": _c(9) or None,
         "event_type": _c(10) or None,
         "event_title": _c(11) or None,
         "attendees": attendees,
@@ -110,7 +110,7 @@ def _dict_to_row(action: dict) -> list:
         action.get("recipient_email", "") or "",
         action.get("recipient_name", "") or "",
         action.get("subject", "") or "",
-        action.get("person_id", "") or "",
+        action.get("people_id", "") or "",
         action.get("event_type", "") or "",
         action.get("event_title", "") or "",
         attendees_str,
