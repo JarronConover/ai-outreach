@@ -1,4 +1,3 @@
-import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, CalendarDays } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -45,32 +44,13 @@ function formatDemoDate(isoString: string | null): string {
 }
 
 interface DemosWidgetProps {
-  refreshKey?: number;
+  demos: Record<string, string>[];
+  loading: boolean;
+  onRefresh: () => void;
 }
 
-export function DemosWidget({ refreshKey }: DemosWidgetProps) {
-  const [demos, setDemos] = useState<Demo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchDemos = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/demos");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: Demo[] = await res.json();
-      setDemos(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load demos");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDemos();
-  }, [fetchDemos, refreshKey]);
+export function DemosWidget({ demos: rawDemos, loading, onRefresh }: DemosWidgetProps) {
+  const demos = rawDemos as unknown as Demo[];
 
   return (
     <div className="panel overflow-hidden">
@@ -85,7 +65,7 @@ export function DemosWidget({ refreshKey }: DemosWidgetProps) {
           )}
         </h2>
         <button
-          onClick={fetchDemos}
+          onClick={onRefresh}
           className="p-1.5 rounded-md text-[#9ca3af] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
           title="Refresh"
         >
@@ -95,8 +75,6 @@ export function DemosWidget({ refreshKey }: DemosWidgetProps) {
 
       {loading && demos.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-[#9ca3af]">Loading…</div>
-      ) : error ? (
-        <div className="px-5 py-8 text-center text-sm text-red-500">{error}</div>
       ) : demos.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-[#9ca3af]">
           No demos scheduled. Add a row to the Demos sheet with status "scheduled".
@@ -104,10 +82,7 @@ export function DemosWidget({ refreshKey }: DemosWidgetProps) {
       ) : (
         <div className="divide-y divide-[#f3f4f6]">
           {demos.map((demo) => (
-            <div
-              key={demo.id}
-              className="px-5 py-3.5 hover:bg-[#f9fafb] transition-colors"
-            >
+            <div key={demo.id} className="px-5 py-3.5 hover:bg-[#f9fafb] transition-colors">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -123,9 +98,7 @@ export function DemosWidget({ refreshKey }: DemosWidgetProps) {
                       </span>
                     )}
                   </div>
-                  <div className="text-sm font-medium text-[#111827] truncate">
-                    {demo.company_name}
-                  </div>
+                  <div className="text-sm font-medium text-[#111827] truncate">{demo.company_name}</div>
                   <div className="text-xs text-[#4b5563] truncate">{demo.person_name}</div>
                   <div className="text-xs text-[#9ca3af] mt-1">{formatDemoDate(demo.date)}</div>
                 </div>

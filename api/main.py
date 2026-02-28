@@ -629,6 +629,32 @@ def get_stats():
     }
 
 
+@app.get("/dashboard")
+def get_dashboard():
+    """Single endpoint returning people, demos, and stats in one Sheets round trip."""
+    people = get_people_dicts()
+    companies = get_company_names()
+    demos = get_demos()
+
+    for person in people:
+        person["company_name"] = companies.get(person.get("company_id", ""), person.get("company_id", ""))
+
+    demos.sort(key=lambda d: (d.get("date") or ""))
+
+    stages = [p.get("stage", "").strip().upper() for p in people]
+    demo_statuses = [d.get("status", "").strip().lower() for d in demos]
+
+    stats = {
+        "total_prospects": len(people),
+        "interested": sum(1 for s in stages if s == "INTERESTED"),
+        "clients": sum(1 for s in stages if s == "CLIENT"),
+        "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
+        "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
+    }
+
+    return {"stats": stats, "people": people, "demos": demos}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

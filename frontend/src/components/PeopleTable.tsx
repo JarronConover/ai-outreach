@@ -1,4 +1,3 @@
-import { useEffect, useState, useCallback } from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -28,32 +27,13 @@ function stageBadgeVariant(stage: string): "teal" | "green" | "gray" {
 }
 
 interface PeopleTableProps {
-  refreshKey: number;
+  people: Record<string, string>[];
+  loading: boolean;
+  onRefresh: () => void;
 }
 
-export function PeopleTable({ refreshKey }: PeopleTableProps) {
-  const [people, setPeople] = useState<Person[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchPeople = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/people");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: Person[] = await res.json();
-      setPeople(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load people");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPeople();
-  }, [fetchPeople, refreshKey]);
+export function PeopleTable({ people: rawPeople, loading, onRefresh }: PeopleTableProps) {
+  const people = rawPeople as unknown as Person[];
 
   return (
     <div className="panel overflow-hidden">
@@ -67,7 +47,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
           )}
         </h2>
         <button
-          onClick={fetchPeople}
+          onClick={onRefresh}
           className="p-1.5 rounded-md text-[#9ca3af] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
           title="Refresh"
         >
@@ -77,8 +57,6 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
 
       {loading && people.length === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-[#9ca3af]">Loading…</div>
-      ) : error ? (
-        <div className="px-5 py-12 text-center text-sm text-red-500">{error}</div>
       ) : people.length === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-[#9ca3af]">
           No contacts yet. Run the agent to generate leads.
@@ -111,15 +89,10 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
                   <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.company_name || "—"}</td>
                   <td className="px-4 py-3 text-[#4b5563]">
                     {p.email ? (
-                      <a
-                        href={`mailto:${p.email}`}
-                        className="text-[#0d9488] hover:underline"
-                      >
+                      <a href={`mailto:${p.email}`} className="text-[#0d9488] hover:underline">
                         {p.email}
                       </a>
-                    ) : (
-                      "—"
-                    )}
+                    ) : "—"}
                   </td>
                   <td className="px-4 py-3">
                     {p.linkedin ? (
