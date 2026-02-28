@@ -90,6 +90,12 @@ class ProspectingAgent:
 
         result = agent.invoke({"messages": [{"role": "user", "content": search_prompt}]})
         raw_output = result["messages"][-1].content
+        # langchain 1.x may return a list of content blocks instead of a plain string
+        if isinstance(raw_output, list):
+            raw_output = "".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in raw_output
+            )
         log_trace("raw_output", {"output": raw_output})
 
         try:

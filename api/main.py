@@ -255,6 +255,9 @@ def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool, indus
         if people_dicts:
             append_people(people_dicts, industry=industry)
 
+        # Bust the dashboard cache so the next /dashboard fetch reflects new people
+        _dashboard_cache["expires_at"] = 0.0
+
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
         _jobs[job_id]["result"] = {
@@ -629,9 +632,20 @@ def get_stats():
     }
 
 
+_dashboard_cache: dict = {"data": None, "expires_at": 0.0}
+_DASHBOARD_TTL = 30  # seconds
+
+
 @app.get("/dashboard")
 def get_dashboard():
-    """Single endpoint returning people, demos, and stats in one Sheets round trip."""
+    """Single endpoint returning people, demos, and stats in one Sheets round trip.
+
+    Results are cached for 30 s to avoid hitting the Sheets read-quota limit.
+    """
+    now = time.time()
+    if _dashboard_cache["data"] is not None and now < _dashboard_cache["expires_at"]:
+        return _dashboard_cache["data"]
+
     people = get_people_dicts()
     companies = get_company_names()
     demos = get_demos()
@@ -652,7 +666,10 @@ def get_dashboard():
         "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
     }
 
-    return {"stats": stats, "people": people, "demos": demos}
+    result = {"stats": stats, "people": people, "demos": demos}
+    _dashboard_cache["data"] = result
+    _dashboard_cache["expires_at"] = now + _DASHBOARD_TTL
+    return result
 
 
 @app.get("/health")
