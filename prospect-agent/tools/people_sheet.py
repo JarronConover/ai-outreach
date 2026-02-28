@@ -120,7 +120,13 @@ def get_people_dicts() -> list[dict]:
         result = []
         for row in all_rows[1:]:
             if len(row) > 3 and row[3].strip():
-                result.append({header[i]: (row[i] if i < len(row) else "") for i in range(len(header))})
+                d = {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
+                # Legacy fix: rows written before the phone column was added have the
+                # LinkedIn URL stored in the phone slot.  Detect and correct at read time.
+                if not d.get("linkedin") and d.get("phone", "").startswith("http"):
+                    d["linkedin"] = d["phone"]
+                    d["phone"] = ""
+                result.append(d)
         return result
     except Exception as e:
         raise Exception(f"Failed to fetch people: {e}") from e
