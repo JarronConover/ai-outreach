@@ -18,6 +18,8 @@ class EmailResult(BaseModel):
     sent_at: datetime
     success: bool
     error: Optional[str] = None
+    # Populated during dry-run so the API can execute individual confirmed actions
+    person_id: Optional[str] = None
 
 
 class CalendarEventResult(BaseModel):
@@ -32,6 +34,8 @@ class CalendarEventResult(BaseModel):
     created_at: datetime
     success: bool
     error: Optional[str] = None
+    # Populated during dry-run so the API can execute individual confirmed actions
+    demo_id: Optional[str] = None
 
 
 class OutreachRunResult(BaseModel):

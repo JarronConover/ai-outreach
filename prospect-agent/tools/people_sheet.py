@@ -42,6 +42,29 @@ _DEMOS_HEADER_ROW = [
     "id", "people_id", "company_id", "type", "date", "status", "count", "event_id",
 ]
 
+_gspread_client = None
+_spreadsheet = None
+_people_ws = None
+
+
+def _get_people_worksheet():
+    """Get or create the People worksheet, caching the client and spreadsheet."""
+    global _gspread_client, _spreadsheet, _people_ws
+    if _people_ws is not None:
+        return _people_ws
+    creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+    sheet_id = os.environ["GOOGLE_SHEET_ID"]
+    if _gspread_client is None:
+        creds = Credentials.from_service_account_file(creds_file, scopes=_SCOPES)
+        _gspread_client = gspread.authorize(creds)
+    if _spreadsheet is None:
+        _spreadsheet = _gspread_client.open_by_key(sheet_id)
+    try:
+        _people_ws = _spreadsheet.worksheet("People")
+    except gspread.WorksheetNotFound:
+        _people_ws = _spreadsheet.add_worksheet(title="People", rows=1000, cols=20)
+        _people_ws.append_row(_PEOPLE_HEADER_ROW)
+    return _people_ws
 
 def _get_client():
     creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")

@@ -7,9 +7,17 @@ import importlib.util
 # ---------------------------------------------------------------------------
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _ORCHESTRATOR_AGENT_DIR = os.path.dirname(_THIS_DIR)  # orchestrator-agent/
-_PROSPECT_AGENT_DIR = os.path.join(os.path.dirname(_ORCHESTRATOR_AGENT_DIR), "prospect-agent")
-_OUTREACH_AGENT_DIR = os.path.join(os.path.dirname(_ORCHESTRATOR_AGENT_DIR), "outreach-agent")
 _PROJECT_ROOT = os.path.dirname(_ORCHESTRATOR_AGENT_DIR)
+_PROSPECT_AGENT_DIR = os.path.join(_PROJECT_ROOT, "prospect-agent")
+_OUTREACH_AGENT_DIR = os.path.join(_PROJECT_ROOT, "outreach-agent")
+
+# Module keys that belong exclusively to the outreach-agent; saved/restored around dynamic loads
+_OA_MODULE_KEYS = [
+    "agent", "agent.config", "agent.orchestrator", "agent.tracer",
+    "agent.exceptions", "agent.results",
+    "tools", "tools.tool", "tools.email_clients", "tools.email_prospects",
+    "tools.schedule_demo", "tools.schedule_followup",
+]
 
 # ---------------------------------------------------------------------------
 # Orchestrator-agent's own schemas must take precedence over prospect-agent's.
@@ -177,74 +185,105 @@ class OrchestratorAgent:
             return StageResult(stage="prospect", status="failed", error=str(e))
 
     def _run_outreach_stage(self, person_ids: list) -> StageResult:
-        log_trace("outreach_stage_start", {})
+        log_trace("outreach_stage_skipped", {"person_ids": person_ids, "reason": "not yet implemented"})
+        return StageResult(
+            stage="outreach",
+            status="skipped",
+            error="OutreachAgent not yet available — merge outreach branch to enable.",
+        )
+
+    # ------------------------------------------------------------------
+    # Outreach-agent integration
+    # ------------------------------------------------------------------
+
+    def plan_outreach(self):
+        """Run the outreach-agent in dry-run mode and return an OutreachRunResult."""
+        return self._call_outreach(lambda orch: orch.plan())
+
+    def execute_confirmed_actions(self, actions: list) -> None:
+        """Execute a list of confirmed action dicts via the outreach-agent tools."""
+        def _execute(orch):
+            crm = orch.api.load_crm_context(orch.config.spreadsheet_id)
+
+            prospect_ids: set = set()
+            client_ids: set = set()
+            followup_ids: set = set()
+            calendar_demo_ids: set = set()
+
+            for action in actions:
+                if action["kind"] == "email":
+                    pid = action.get("person_id")
+                    if not pid:
+                        continue
+                    etype = action.get("email_type", "")
+                    if etype == "prospect_outreach":
+                        prospect_ids.add(pid)
+                    elif etype == "client_outreach":
+                        client_ids.add(pid)
+                    elif etype == "followup_email":
+                        followup_ids.add(pid)
+                elif action["kind"] == "calendar":
+                    did = action.get("demo_id")
+                    if did:
+                        calendar_demo_ids.add(did)
+
+            def _filter(person_ids, demo_ids):
+                fp = [p for p in crm.people if p.id in person_ids]
+                dp_ids = {d.people_id for d in crm.demos if d.id in demo_ids}
+                for p in crm.people:
+                    if p.id in dp_ids and p.id not in person_ids:
+                        fp.append(p)
+                fd = [d for d in crm.demos if d.id in demo_ids or d.people_id in person_ids]
+                return crm.__class__(people=fp, companies=crm.companies, demos=fd)
+
+            if prospect_ids:
+                orch.email_prospects_tool.execute(_filter(prospect_ids, set()))
+            if client_ids:
+                orch.email_clients_tool.execute(_filter(client_ids, set()))
+            if followup_ids:
+                orch.schedule_followup_tool.execute(_filter(followup_ids, set()))
+            if calendar_demo_ids:
+                orch.schedule_demo_tool.execute(_filter(set(), calendar_demo_ids))
+
+        self._call_outreach(_execute)
+
+    def _call_outreach(self, fn):
+        """
+        Temporarily load the outreach-agent into sys.path/sys.modules, build an
+        OutreachOrchestrator, call fn(orchestrator), then restore the module state.
+        """
+        saved = {k: sys.modules.get(k) for k in _OA_MODULE_KEYS}
         try:
-            # Ensure project root is on sys.path so `from schemas.crm import …` resolves.
+            for k in _OA_MODULE_KEYS:
+                sys.modules.pop(k, None)
+            if _OUTREACH_AGENT_DIR not in sys.path:
+                sys.path.insert(0, _OUTREACH_AGENT_DIR)
             if _PROJECT_ROOT not in sys.path:
                 sys.path.insert(0, _PROJECT_ROOT)
 
-            # Pre-register schemas.crm and schemas.sheet_config from the project root.
-            # sys.modules["schemas"] already points to orchestrator-agent/schemas/ (which
-            # has no crm.py), so we inject these two sub-modules directly.  They don't
-            # conflict with anything and must stay in sys.modules for the duration of the
-            # outreach run (methods call `from schemas.crm import …` lazily).
-            for _name, _relpath in [
-                ("schemas.crm",         "schemas/crm.py"),
-                ("schemas.sheet_config","schemas/sheet_config.py"),
-            ]:
-                if _name not in sys.modules:
-                    _load_module_from_path(_name, os.path.join(_PROJECT_ROOT, _relpath))
+            from agent.config import OutreachAgentConfig   # noqa: E402
+            from agent.orchestrator import OutreachOrchestrator  # noqa: E402
 
-            # Bare module names the outreach orchestrator uses at import time.
-            _bare = [
-                "agent.config", "agent.exceptions", "agent.results", "agent.tracer",
-                "tools", "tools.tool", "tools.email_clients", "tools.email_prospects",
-                "tools.schedule_demo", "tools.schedule_followup",
+            missing = [
+                v for v in ("GOOGLE_SHEET_ID", "SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
+                if not os.getenv(v)
             ]
-            _saved = {k: sys.modules.get(k) for k in _bare}
-
-            try:
-                def _load_outreach(relpath, bare_name):
-                    mod = _load_module_from_path(
-                        f"_outreach_agent.{bare_name}",
-                        os.path.join(_OUTREACH_AGENT_DIR, relpath),
-                    )
-                    sys.modules[bare_name] = mod
-                    return mod
-
-                config_mod = _load_outreach("agent/config.py",            "agent.config")
-                _load_outreach("agent/exceptions.py",        "agent.exceptions")
-                _load_outreach("agent/results.py",           "agent.results")
-                _load_outreach("agent/tracer.py",            "agent.tracer")
-                _load_outreach("tools/tool.py",              "tools.tool")
-                _load_outreach("tools/email_clients.py",     "tools.email_clients")
-                _load_outreach("tools/email_prospects.py",   "tools.email_prospects")
-                _load_outreach("tools/schedule_demo.py",     "tools.schedule_demo")
-                _load_outreach("tools/schedule_followup.py", "tools.schedule_followup")
-
-                outreach_orch_mod = _load_module_from_path(
-                    "_outreach_agent.agent.orchestrator",
-                    os.path.join(_OUTREACH_AGENT_DIR, "agent", "orchestrator.py"),
-                )
-                OutreachOrchestrator = outreach_orch_mod.OutreachOrchestrator
-                OutreachAgentConfig  = config_mod.OutreachAgentConfig
-            finally:
-                for k, v in _saved.items():
-                    if v is None:
-                        sys.modules.pop(k, None)
-                    else:
-                        sys.modules[k] = v
+            if missing:
+                raise RuntimeError(f"Missing env vars: {', '.join(missing)}")
 
             config = OutreachAgentConfig(
                 spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
                 credentials_file=os.getenv(
-                    "GOOGLE_OAUTH_CREDENTIALS_FILE",
+                    "GOOGLE_CREDENTIALS_FILE",
                     os.path.join(_OUTREACH_AGENT_DIR, "credentials.json"),
                 ),
-                token_file=os.getenv("GOOGLE_TOKEN_FILE", "token.pickle"),
+                token_file=os.getenv(
+                    "GOOGLE_TOKEN_FILE",
+                    os.path.join(_OUTREACH_AGENT_DIR, "token.pickle"),
+                ),
                 sender_email=os.environ["SENDER_EMAIL"],
-                sender_name=os.getenv("SENDER_NAME", ""),
-                company_name=os.getenv("COMPANY_NAME", ""),
+                sender_name=os.environ["SENDER_NAME"],
+                company_name=os.environ["COMPANY_NAME"],
                 bcc_email=os.getenv("BCC_EMAIL") or None,
                 calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "America/Denver"),
                 demo_duration_minutes=int(os.getenv("DEMO_DURATION_MINUTES", "60")),
@@ -252,18 +291,17 @@ class OrchestratorAgent:
                 google_meet=os.getenv("GOOGLE_MEET", "true").lower() == "true",
                 followup_days=int(os.getenv("FOLLOWUP_DAYS", "7")),
                 client_checkin_days=int(os.getenv("CLIENT_CHECKIN_DAYS", "30")),
-                dry_run=os.getenv("OUTREACH_DRY_RUN", "false").lower() == "true",
+                dry_run=False,
             )
-
-            run_result = OutreachOrchestrator(config).run()
-            emails_sent = sum(1 for e in run_result.emails_sent if e.success)
-
-            return StageResult(
-                stage="outreach",
-                status="completed",
-                people_written=emails_sent,
-                error="; ".join(run_result.errors) if run_result.errors else None,
-            )
-        except Exception as e:
-            log_trace("outreach_stage_error", {"error": str(e)})
-            return StageResult(stage="outreach", status="failed", error=str(e))
+            orch = OutreachOrchestrator(config)
+            return fn(orch)
+        finally:
+            try:
+                sys.path.remove(_OUTREACH_AGENT_DIR)
+            except ValueError:
+                pass
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
