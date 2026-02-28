@@ -78,6 +78,27 @@ def get_company_names() -> dict:
         raise Exception(f"Failed to fetch companies: {e}") from e
 
 
+def get_people_dicts() -> list[dict]:
+    """Fetch all people from the People sheet as a list of dicts.
+
+    Reads the actual header row from the sheet so column order doesn't matter.
+    """
+    try:
+        sheet = _get_client()
+        ws = _get_worksheet(sheet, "People", header=_PEOPLE_HEADER_ROW)
+        all_rows = ws.get_all_values()
+        if not all_rows or len(all_rows) < 2:
+            return []
+        header = [h.strip() for h in all_rows[0]]
+        result = []
+        for row in all_rows[1:]:
+            if len(row) > 3 and row[3].strip():
+                result.append({header[i]: (row[i] if i < len(row) else "") for i in range(len(header))})
+        return result
+    except Exception as e:
+        raise Exception(f"Failed to fetch people: {e}") from e
+
+
 def get_existing_people() -> dict:
     """Fetch all existing people from the People sheet.
 
