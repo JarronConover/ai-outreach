@@ -9,3 +9,5 @@ dist/
 build/
 credentials.json
 /myvenv/
+frontend/node_modules/
+frontend/dist/
