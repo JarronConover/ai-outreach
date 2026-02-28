@@ -15,6 +15,8 @@ class Person(BaseModel):
     stage: str = "PROSPECTING"
     last_response: Optional[datetime] = None
     last_contact: Optional[datetime] = None
+    last_demo_id: Optional[str] = None
+    next_demo_id: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
