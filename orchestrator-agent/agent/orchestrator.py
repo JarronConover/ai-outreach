@@ -237,7 +237,10 @@ class OrchestratorAgent:
 
             config = OutreachAgentConfig(
                 spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
-                credentials_file=os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json"),
+                credentials_file=os.getenv(
+                    "GOOGLE_OAUTH_CREDENTIALS_FILE",
+                    os.path.join(_OUTREACH_AGENT_DIR, "credentials.json"),
+                ),
                 token_file=os.getenv("GOOGLE_TOKEN_FILE", "token.pickle"),
                 sender_email=os.environ["SENDER_EMAIL"],
                 sender_name=os.getenv("SENDER_NAME", ""),
