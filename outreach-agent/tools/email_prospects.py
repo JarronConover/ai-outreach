@@ -127,7 +127,7 @@ class EmailProspectsTool(BaseTool):
                 # Advance stage and record contact in the People sheet
                 for col, val in [
                     (PeopleColumns.STAGE, Stage.CONTACTED),
-                    (PeopleColumns.LAST_CONTACT, "email"),
+                    (PeopleColumns.LAST_CONTACT, today_str),
                     (PeopleColumns.LAST_CONTACT_DATE, today_str),
                 ]:
                     self.api.update_cell(

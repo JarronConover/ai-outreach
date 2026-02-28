@@ -155,13 +155,20 @@ class OutreachOrchestrator:
         """
         Run all tools in dry-run mode and return the planned actions.
         The orchestrator's real dry_run setting is restored afterwards.
+
+        IMPORTANT: _init_tools() must be called after updating self.config because
+        each tool captures a snapshot of self.config at construction time.  Without
+        reinitialising, the tools keep their original dry_run=False config and would
+        send real emails / create real events during the preview phase.
         """
         original = self.config.dry_run
         self.config = self.config.model_copy(update={"dry_run": True})
+        self._init_tools()  # give every tool the dry_run=True config
         try:
             return self.run()
         finally:
             self.config = self.config.model_copy(update={"dry_run": original})
+            self._init_tools()  # restore tools to the original config
 
     def print_plan(self, result: OutreachRunResult) -> None:
         """Print a human-readable preview of every email and calendar event that would be sent."""

@@ -138,7 +138,7 @@ class ScheduleFollowUpTool(BaseTool):
                 )
                 # Update People sheet
                 for col, val in [
-                    (PeopleColumns.LAST_CONTACT, "email"),
+                    (PeopleColumns.LAST_CONTACT, today_str),
                     (PeopleColumns.LAST_CONTACT_DATE, today_str),
                 ]:
                     self.api.update_cell(

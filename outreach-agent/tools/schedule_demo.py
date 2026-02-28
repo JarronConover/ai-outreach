@@ -4,7 +4,7 @@ Tool 3 – Schedule Demo Meetings
 Scans the Demos sheet for every row where:
   • status            = "scheduled"
   • date              is set
-  • calendar_event_id is empty  (not yet on the calendar)
+  • event_id is empty  (not yet on the calendar)
 
 For each matching demo the tool:
   1. Creates a Google Calendar event with all three attendees:
@@ -12,12 +12,12 @@ For each matching demo the tool:
        • SENDER_EMAIL  (from .env)
        • BCC_EMAIL     (from .env, if set)
      Google automatically sends calendar invites to all attendees.
-  2. Writes the new event ID back to Demos.calendar_event_id (column H).
+  2. Writes the new event ID back to Demos.event_id (column H).
   3. Writes the demo's ID to People.next_demo_id (column J) for the
      matching person, so the People sheet always reflects the upcoming demo.
   4. Sends a personalised confirmation email to the contact.
 
-This tool is idempotent: once calendar_event_id is written the demo is
+This tool is idempotent: once event_id is written the demo is
 excluded from future runs.
 """
 
@@ -84,12 +84,12 @@ class ScheduleDemoTool(BaseTool):
     Filtering criteria (Demos sheet):
         status            = "scheduled"
         date              is set
-        calendar_event_id is empty
+        event_id is empty
 
     Calendar attendees: contact email + sender_email + bcc_email (if set)
 
     Sheet updates on success:
-        Demos.calendar_event_id ← Google Calendar event ID
+        Demos.event_id ← Google Calendar event ID
         People.next_demo_id     ← demo.id  (for the matching person)
     """
 
@@ -108,8 +108,15 @@ class ScheduleDemoTool(BaseTool):
             demo for demo in crm.demos
             if demo.status.lower() == DemoStatus.SCHEDULED
             and demo.date is not None
-            and not demo.calendar_event_id
+            and not demo.event_id
         ]
+
+        # Warn about any scheduled demos that will be skipped due to a missing date
+        for demo in crm.demos:
+            if demo.status.lower() == DemoStatus.SCHEDULED and not demo.event_id and demo.date is None:
+                self.tracer.log_calendar_event_skipped(
+                    demo.id, f"demo {demo.id} is scheduled but has no parseable date – add a date to the Demos sheet"
+                )
 
         self.tracer.log_tool_start(
             self.tool_name,
@@ -186,7 +193,7 @@ class ScheduleDemoTool(BaseTool):
                     self.config.spreadsheet_id,
                     SheetNames.DEMOS,
                     demo.row_index,
-                    DemoColumns.CALENDAR_EVENT_ID,
+                    DemoColumns.EVENT_ID,
                     event_id,
                 )
 
@@ -268,7 +275,7 @@ class ScheduleDemoTool(BaseTool):
                 )
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                 for col, val in [
-                    (PeopleColumns.LAST_CONTACT, "email"),
+                    (PeopleColumns.LAST_CONTACT, now_str),
                     (PeopleColumns.LAST_CONTACT_DATE, now_str),
                 ]:
                     self.api.update_cell(
