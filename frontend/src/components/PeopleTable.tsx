@@ -17,6 +17,7 @@ interface Person {
   last_contact: string;
   last_response_date: string;
   last_contact_date: string;
+  company_name: string;
 }
 
 function stageBadgeVariant(stage: string): "teal" | "green" | "gray" {
@@ -107,7 +108,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
                     {p.name || "—"}
                   </td>
                   <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.title || "—"}</td>
-                  <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.company_id || "—"}</td>
+                  <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.company_name || "—"}</td>
                   <td className="px-4 py-3 text-[#4b5563]">
                     {p.email ? (
                       <a

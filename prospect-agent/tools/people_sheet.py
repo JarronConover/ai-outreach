@@ -58,6 +58,26 @@ def _get_worksheet(sheet, title: str, rows: int = 1000, header: list = None):
         return ws
 
 
+def get_company_names() -> dict:
+    """Fetch all companies from the Companies sheet.
+
+    Returns a dict keyed by company id mapping to company name.
+    """
+    try:
+        sheet = _get_client()
+        ws = _get_worksheet(sheet, "Companies", header=_COMPANIES_HEADER_ROW)
+        all_rows = ws.get_all_values()
+        if not all_rows or len(all_rows) < 2:
+            return {}
+        return {
+            row[0].strip(): row[1].strip()
+            for row in all_rows[1:]
+            if len(row) > 1 and row[0].strip()
+        }
+    except Exception as e:
+        raise Exception(f"Failed to fetch companies: {e}") from e
+
+
 def get_existing_people() -> dict:
     """Fetch all existing people from the People sheet.
 

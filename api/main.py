@@ -51,6 +51,7 @@ log_trace = _pa_tracer.log_trace
 append_people = _pa_tools.append_people
 filter_duplicates = _pa_tools.filter_duplicates
 get_existing_people = _pa_tools.get_existing_people
+get_company_names = _pa_tools.get_company_names
 
 # prospect-agent/agent/orchestrator.py uses bare imports (`from schemas.input import ICPInput`).
 # Swap sys.modules so those bare imports resolve to prospect-agent's modules, not orchestrator-agent's.
@@ -357,12 +358,14 @@ def list_jobs():
 
 @app.get("/people")
 def list_people():
-    """List all prospects from Google Sheets."""
+    """List all prospects from Google Sheets, with company_name resolved from Companies sheet."""
     raw = get_existing_people()
+    companies = get_company_names()
     header = ["id", "name", "company_id", "email", "phone", "linkedin", "title", "stage", "last_demo_id", "next_demo_id", "last_response", "last_contact", "last_response_date", "last_contact_date"]
     result = []
     for row in raw.values():
         person = {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
+        person["company_name"] = companies.get(person["company_id"], person["company_id"])
         result.append(person)
     return result
 
