@@ -83,38 +83,22 @@ class DemoColumns:
         A  id
         B  people_id
         C  company_id
-        D  discovery          (notes / link)
-        E  discovery_date
-        F  tech               (notes / link)
-        G  tech_date
-        H  pricing            (notes / link)
-        I  pricing_date
-        J  onboarding         (notes / link)
-        K  onboarding_date
-        L  client             (notes / link)
-        M  client_date
-        N  status             (scheduled | completed | canceled | missed)
-        O  count              (number of meetings held)
-        P  calendar_event_id  (managed by outreach agent – write here after creating event)
+        D  type               (discovery | tech | pricing | onboarding | client)
+        E  date               (date/time of the meeting)
+        F  status             (scheduled | completed | canceled | missed)
+        G  count              (number of meetings held)
+        H  event_id           (managed by outreach agent – written after creating event)
     """
-    ID                = 0
-    PEOPLE_ID         = 1
-    COMPANY_ID        = 2
-    DISCOVERY         = 3
-    DISCOVERY_DATE    = 4
-    TECH              = 5
-    TECH_DATE         = 6
-    PRICING           = 7
-    PRICING_DATE      = 8
-    ONBOARDING        = 9
-    ONBOARDING_DATE   = 10
-    CLIENT            = 11
-    CLIENT_DATE       = 12
-    STATUS            = 13
-    COUNT             = 14
-    CALENDAR_EVENT_ID = 15  # agent-managed; add this column to the sheet
+    ID        = 0
+    PEOPLE_ID = 1
+    COMPANY_ID = 2
+    TYPE      = 3
+    DATE      = 4
+    STATUS    = 5
+    COUNT     = 6
+    EVENT_ID  = 7  # agent-managed; Google Calendar event ID
 
-    TOTAL_COLUMNS = 16
+    TOTAL_COLUMNS = 8
 
 
 class SheetNames:

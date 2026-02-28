@@ -50,10 +50,16 @@ class DemoStatus(str):
 # ---------------------------------------------------------------------------
 
 _DATE_FORMATS = (
+    "%Y-%m-%d %H:%M:%S",   # Google Sheets datetime with seconds
     "%Y-%m-%d %H:%M",
+    "%Y-%m-%dT%H:%M:%S",   # ISO 8601 with seconds
     "%Y-%m-%dT%H:%M",
     "%Y-%m-%d",
+    "%m/%d/%Y %H:%M:%S",   # US date with time and seconds
+    "%m/%d/%Y %H:%M",      # US date with time
     "%m/%d/%Y",
+    "%m/%d/%y %H:%M:%S",
+    "%m/%d/%y %H:%M",
     "%m/%d/%y",
 )
 
@@ -196,11 +202,10 @@ class Demo(BaseModel):
     """
     One row from the Demos sheet.
 
-    Each demo record tracks an engagement through the full pipeline:
-      discovery → tech demo → pricing → onboarding → client
+    Columns: id, people_id, company_id, type, date, status, count, event_id
 
-    calendar_event_id is written back by the outreach agent when it creates
-    a Google Calendar event for the next upcoming stage meeting.
+    event_id is written back by the outreach agent after it creates
+    a Google Calendar event, making the tool idempotent on subsequent runs.
     """
     row_index: int
 
@@ -208,24 +213,12 @@ class Demo(BaseModel):
     people_id: str
     company_id: str
 
-    discovery: Optional[str] = None         # notes or recording link
-    discovery_date: Optional[datetime] = None
+    type: str = "discovery"              # e.g. "discovery", "tech", "pricing", "onboarding"
+    date: Optional[datetime] = None      # the scheduled meeting date/time
 
-    tech: Optional[str] = None
-    tech_date: Optional[datetime] = None
-
-    pricing: Optional[str] = None
-    pricing_date: Optional[datetime] = None
-
-    onboarding: Optional[str] = None
-    onboarding_date: Optional[datetime] = None
-
-    client: Optional[str] = None
-    client_date: Optional[datetime] = None
-
-    status: str = DemoStatus.SCHEDULED
+    status: str = DemoStatus.SCHEDULED   # "scheduled" | "completed" | "canceled" | "missed"
     count: Optional[int] = None
-    calendar_event_id: Optional[str] = None  # agent-managed (Demos col P)
+    event_id: Optional[str] = None  # agent-managed (Demos col H, index 7)
 
     @classmethod
     def from_sheet_row(cls, row: list, row_index: int) -> "Demo":
@@ -243,49 +236,17 @@ class Demo(BaseModel):
             id=_cell(row, DC.ID),
             people_id=_cell(row, DC.PEOPLE_ID),
             company_id=_cell(row, DC.COMPANY_ID),
-            discovery=_cell(row, DC.DISCOVERY) or None,
-            discovery_date=_parse_dt(_cell(row, DC.DISCOVERY_DATE)),
-            tech=_cell(row, DC.TECH) or None,
-            tech_date=_parse_dt(_cell(row, DC.TECH_DATE)),
-            pricing=_cell(row, DC.PRICING) or None,
-            pricing_date=_parse_dt(_cell(row, DC.PRICING_DATE)),
-            onboarding=_cell(row, DC.ONBOARDING) or None,
-            onboarding_date=_parse_dt(_cell(row, DC.ONBOARDING_DATE)),
-            client=_cell(row, DC.CLIENT) or None,
-            client_date=_parse_dt(_cell(row, DC.CLIENT_DATE)),
+            type=_cell(row, DC.TYPE) or "discovery",
+            date=_parse_dt(_cell(row, DC.DATE)),
             status=_cell(row, DC.STATUS) or DemoStatus.SCHEDULED,
             count=_int(DC.COUNT),
-            calendar_event_id=_cell(row, DC.CALENDAR_EVENT_ID) or None,
+            event_id=_cell(row, DC.EVENT_ID) or None,
         )
 
     @property
-    def next_unscheduled_date(self) -> Optional[datetime]:
-        """
-        Walk the pipeline stages in order and return the first date that is
-        set but has no calendar event created yet.  Used by the calendar sync
-        tool to know which stage to schedule next.
-        """
-        # Discovery is the first stage; if its date is set and no event yet → use it
-        if self.discovery_date and not self.calendar_event_id:
-            return self.discovery_date
-        # Once discovery is covered, subsequent dates need their own logic
-        # (extend here as the pipeline grows)
-        return None
-
-    @property
     def current_stage_label(self) -> str:
-        """Human-readable label for the most-advanced stage reached."""
-        if self.client_date:
-            return "Client Conversion"
-        if self.onboarding_date:
-            return "Onboarding"
-        if self.pricing_date:
-            return "Pricing"
-        if self.tech_date:
-            return "Tech Demo"
-        if self.discovery_date:
-            return "Discovery"
-        return "Not Started"
+        """Human-readable label derived from the demo type."""
+        return self.type.replace("_", " ").title() if self.type else "Discovery"
 
 
 # ---------------------------------------------------------------------------
