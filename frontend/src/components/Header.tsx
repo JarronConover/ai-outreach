@@ -6,7 +6,7 @@ export function Header() {
         <h1 className="text-lg font-semibold text-[#111827] tracking-tight">
           Scout
         </h1>
-        <span className="text-[#9ca3af] text-sm ml-1">— AI prospecting</span>
+        <span className="text-[#9ca3af] text-sm ml-1">— AI ICP prospecting and outreach</span>
       </div>
     </header>
   );
