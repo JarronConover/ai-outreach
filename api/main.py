@@ -84,7 +84,7 @@ _POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "15"))  # seconds
 
 # Index positions in the People sheet header row
 _IDX_ID = 0
-_IDX_STAGE = 7
+_IDX_LAST_CONTACT = 9
 
 
 def _start_outreach_job() -> str:
@@ -118,8 +118,8 @@ def _sheet_poller():
             new_ids = []
             for row in people.values():
                 person_id = row[_IDX_ID] if len(row) > _IDX_ID else ""
-                stage = row[_IDX_STAGE] if len(row) > _IDX_STAGE else ""
-                if person_id and stage == "PROSPECTING" and person_id not in _seen_person_ids:
+                last_contact = row[_IDX_LAST_CONTACT] if len(row) > _IDX_LAST_CONTACT else ""
+                if person_id and not last_contact.strip() and person_id not in _seen_person_ids:
                     _seen_person_ids.add(person_id)
                     new_ids.append(person_id)
 
@@ -138,9 +138,10 @@ async def lifespan(app: FastAPI):
         people = get_existing_people()
         for row in people.values():
             pid = row[_IDX_ID] if len(row) > _IDX_ID else ""
-            if pid:
+            last_contact = row[_IDX_LAST_CONTACT] if len(row) > _IDX_LAST_CONTACT else ""
+            if pid and last_contact.strip():
                 _seen_person_ids.add(pid)
-        print(f"[poller] seeded {len(_seen_person_ids)} existing person IDs")
+        print(f"[poller] seeded {len(_seen_person_ids)} already-contacted person IDs")
     except Exception as e:
         print(f"[poller] failed to seed existing people: {e}")
 
