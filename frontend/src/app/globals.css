@@ -4,7 +4,7 @@
 
 /* ─── Alto design tokens ──────────────────────────────────────── */
 :root {
-  --bg-base:       #dde8f0;
+  --bg-base:       #f0f2f5;
   --bg-card:       #ffffff;
   --bg-surface:    #f9fafb;
   --border:        #e5e7eb;
@@ -16,7 +16,7 @@
 
   --text-primary:   #111827;
   --text-secondary: #4b5563;
-  --text-muted:     #9ca3af;
+  --text-muted:     #6b7280;
 
   --radius: 0.625rem;
 
@@ -88,11 +88,7 @@
   body {
     @apply text-foreground;
     font-family: "Plus Jakarta Sans", sans-serif;
-    background:
-      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(13, 148, 136, 0.18) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(99, 179, 237, 0.15) 0%, transparent 55%),
-      radial-gradient(ellipse 70% 70% at 50% 50%, rgba(226, 240, 253, 0.6) 0%, transparent 80%),
-      linear-gradient(135deg, #dde8f0 0%, #e8eef5 50%, #d8e6f0 100%);
+    background: #f0f2f5;
     min-height: 100vh;
   }
 }
