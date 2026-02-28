@@ -356,7 +356,10 @@ def _run_outreach_plan_job(job_id: str):
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
         _jobs[job_id]["result"] = {"pending_actions": len(new_actions)}
+        print(f"[outreach_plan] completed — {len(new_actions)} action(s) written", flush=True)
     except Exception as e:
+        print(f"[outreach_plan] FAILED: {e}", flush=True)
+        import traceback; traceback.print_exc()
         _jobs[job_id]["status"] = "failed"
         _jobs[job_id]["error"] = str(e)
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
