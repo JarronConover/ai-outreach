@@ -61,41 +61,44 @@ _keys_to_swap = ["schemas", "schemas.input", "agent", "agent.tracer",
 for _k in _keys_to_swap:
     _saved[_k] = sys.modules.get(_k)
 
-# Pre-register prospect-agent's schemas.input so the bare import resolves correctly
-sys.modules["schemas.input"] = _prospect_input_mod
+try:
+    # Pre-register prospect-agent's schemas.input so the bare import resolves correctly
+    sys.modules["schemas.input"] = _prospect_input_mod
 
-# Also load prospect-agent's other deps that prospect-agent/agent/orchestrator.py needs
-_prospect_output_mod = _load_module_from_path(
-    "_prospect_agent.schemas.output",
-    os.path.join(_PROSPECT_AGENT_DIR, "schemas", "output.py"),
-)
-sys.modules["schemas.output"] = _prospect_output_mod
+    # Also load prospect-agent's other deps that prospect-agent/agent/orchestrator.py needs
+    _prospect_output_mod = _load_module_from_path(
+        "_prospect_agent.schemas.output",
+        os.path.join(_PROSPECT_AGENT_DIR, "schemas", "output.py"),
+    )
+    sys.modules["schemas.output"] = _prospect_output_mod
 
-_prospect_tracer_mod = _load_module_from_path(
-    "_prospect_agent.agent.tracer",
-    os.path.join(_PROSPECT_AGENT_DIR, "agent", "tracer.py"),
-)
-sys.modules["agent.tracer"] = _prospect_tracer_mod
+    _prospect_tracer_mod = _load_module_from_path(
+        "_prospect_agent.agent.tracer",
+        os.path.join(_PROSPECT_AGENT_DIR, "agent", "tracer.py"),
+    )
+    sys.modules["agent.tracer"] = _prospect_tracer_mod
 
-_prospect_exceptions_mod = _load_module_from_path(
-    "_prospect_agent.agent.exceptions",
-    os.path.join(_PROSPECT_AGENT_DIR, "agent", "exceptions.py"),
-)
-sys.modules["agent.exceptions"] = _prospect_exceptions_mod
+    _prospect_exceptions_mod = _load_module_from_path(
+        "_prospect_agent.agent.exceptions",
+        os.path.join(_PROSPECT_AGENT_DIR, "agent", "exceptions.py"),
+    )
+    sys.modules["agent.exceptions"] = _prospect_exceptions_mod
 
-# Now load ProspectingAgent — its bare imports will resolve via the swapped sys.modules
-_prospect_orchestrator_mod = _load_module_from_path(
-    "_prospect_agent.agent.orchestrator",
-    os.path.join(_PROSPECT_AGENT_DIR, "agent", "orchestrator.py"),
-)
-ProspectingAgent = _prospect_orchestrator_mod.ProspectingAgent
-
-# Restore sys.modules so orchestrator-agent's schemas take precedence again
-for _k, _v in _saved.items():
-    if _v is None:
-        sys.modules.pop(_k, None)
-    else:
-        sys.modules[_k] = _v
+    # Now load ProspectingAgent — its bare imports will resolve via the swapped sys.modules
+    _prospect_orchestrator_mod = _load_module_from_path(
+        "_prospect_agent.agent.orchestrator",
+        os.path.join(_PROSPECT_AGENT_DIR, "agent", "orchestrator.py"),
+    )
+    ProspectingAgent = _prospect_orchestrator_mod.ProspectingAgent
+finally:
+    # Restore sys.modules so orchestrator-agent's schemas take precedence again.
+    # This runs even if any _load_module_from_path call raises an exception,
+    # ensuring sys.modules is never left in a dirty state.
+    for _k, _v in _saved.items():
+        if _v is None:
+            sys.modules.pop(_k, None)
+        else:
+            sys.modules[_k] = _v
 
 # ---------------------------------------------------------------------------
 # Orchestrator-agent's own schemas (PipelineInput, PipelineResult, StageResult)
