@@ -262,20 +262,33 @@ class OrchestratorAgent:
         ]
         _all_keys = _OA_MODULE_KEYS + _schema_keys
         saved = {k: sys.modules.get(k) for k in _all_keys}
-        _orch_dir_in_path = _ORCHESTRATOR_AGENT_DIR in sys.path
         _added_outreach = _OUTREACH_AGENT_DIR not in sys.path
-        _added_root = _PROJECT_ROOT not in sys.path
         try:
             for k in _all_keys:
                 sys.modules.pop(k, None)
-            # Remove orchestrator-agent dir so its local schemas/ doesn't shadow
-            # the project root's schemas/crm.py during outreach-agent import.
-            if _orch_dir_in_path:
-                sys.path.remove(_ORCHESTRATOR_AGENT_DIR)
             if _added_outreach:
                 sys.path.insert(0, _OUTREACH_AGENT_DIR)
-            if _added_root:
-                sys.path.insert(0, _PROJECT_ROOT)
+
+            # Pre-register the project root's schemas package directly so that
+            # outreach-agent tools can do `from schemas.crm import ...` regardless
+            # of which schemas/ directory sys.path resolves to.
+            _schemas_spec = importlib.util.spec_from_file_location(
+                "schemas",
+                os.path.join(_PROJECT_ROOT, "schemas", "__init__.py"),
+                submodule_search_locations=[os.path.join(_PROJECT_ROOT, "schemas")],
+            )
+            _schemas_mod = importlib.util.module_from_spec(_schemas_spec)
+            sys.modules["schemas"] = _schemas_mod
+            _schemas_spec.loader.exec_module(_schemas_mod)
+
+            _load_module_from_path(
+                "schemas.crm",
+                os.path.join(_PROJECT_ROOT, "schemas", "crm.py"),
+            )
+            _load_module_from_path(
+                "schemas.sheet_config",
+                os.path.join(_PROJECT_ROOT, "schemas", "sheet_config.py"),
+            )
 
             from agent.config import OutreachAgentConfig   # noqa: E402
             from agent.orchestrator import OutreachOrchestrator  # noqa: E402
@@ -317,14 +330,6 @@ class OrchestratorAgent:
                     sys.path.remove(_OUTREACH_AGENT_DIR)
                 except ValueError:
                     pass
-            if _added_root:
-                try:
-                    sys.path.remove(_PROJECT_ROOT)
-                except ValueError:
-                    pass
-            # Restore orchestrator-agent dir if we removed it
-            if _orch_dir_in_path and _ORCHESTRATOR_AGENT_DIR not in sys.path:
-                sys.path.insert(0, _ORCHESTRATOR_AGENT_DIR)
             for k, v in saved.items():
                 if v is None:
                     sys.modules.pop(k, None)
