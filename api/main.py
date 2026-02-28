@@ -81,6 +81,7 @@ load_dotenv()
 _seen_person_ids: set[str] = set()
 _stop_poller = threading.Event()
 _POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "15"))  # seconds
+_OUTREACH_INTERVAL = int(os.getenv("OUTREACH_INTERVAL_HOURS", "24")) * 3600  # seconds
 
 # Index positions in the People sheet header row
 _IDX_ID = 0
@@ -107,6 +108,15 @@ def _start_outreach_job() -> str:
     )
     thread.start()
     return job_id
+
+
+def _outreach_ticker():
+    """Background thread: fires outreach on a fixed cadence for follow-ups and check-ins."""
+    print(f"[ticker] started, interval={_OUTREACH_INTERVAL // 3600}h")
+    while not _stop_poller.wait(timeout=_OUTREACH_INTERVAL):
+        print("[ticker] scheduled outreach run — triggering follow-ups/check-ins")
+        job_id = _start_outreach_job()
+        print(f"[ticker] outreach job queued: {job_id}")
 
 
 def _sheet_poller():
@@ -147,6 +157,8 @@ async def lifespan(app: FastAPI):
 
     poller_thread = threading.Thread(target=_sheet_poller, daemon=True)
     poller_thread.start()
+    ticker_thread = threading.Thread(target=_outreach_ticker, daemon=True)
+    ticker_thread.start()
     yield
     _stop_poller.set()
 
