@@ -8,6 +8,8 @@ import importlib.util
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _ORCHESTRATOR_AGENT_DIR = os.path.dirname(_THIS_DIR)  # orchestrator-agent/
 _PROSPECT_AGENT_DIR = os.path.join(os.path.dirname(_ORCHESTRATOR_AGENT_DIR), "prospect-agent")
+_OUTREACH_AGENT_DIR = os.path.join(os.path.dirname(_ORCHESTRATOR_AGENT_DIR), "outreach-agent")
+_PROJECT_ROOT = os.path.dirname(_ORCHESTRATOR_AGENT_DIR)
 
 # ---------------------------------------------------------------------------
 # Orchestrator-agent's own schemas must take precedence over prospect-agent's.
@@ -175,16 +177,78 @@ class OrchestratorAgent:
             return StageResult(stage="prospect", status="failed", error=str(e))
 
     def _run_outreach_stage(self, person_ids: list) -> StageResult:
-        """Stub: outreach agent is being developed on a separate branch.
+        log_trace("outreach_stage_start", {})
+        try:
+            # Ensure project root is on sys.path so `from schemas.crm import …` resolves.
+            if _PROJECT_ROOT not in sys.path:
+                sys.path.insert(0, _PROJECT_ROOT)
 
-        When OutreachAgent is merged, replace this body with:
-            from outreach_agent.agent.orchestrator import OutreachAgent
-            agent = OutreachAgent()
-            agent.run(person_ids=person_ids)
-        """
-        log_trace("outreach_stage_skipped", {"person_ids": person_ids, "reason": "not yet implemented"})
-        return StageResult(
-            stage="outreach",
-            status="skipped",
-            error="OutreachAgent not yet available — merge outreach branch to enable.",
-        )
+            # Bare module names the outreach orchestrator uses at import time.
+            _bare = [
+                "agent.config", "agent.exceptions", "agent.results", "agent.tracer",
+                "tools", "tools.tool", "tools.email_clients", "tools.email_prospects",
+                "tools.schedule_demo", "tools.schedule_followup",
+            ]
+            _saved = {k: sys.modules.get(k) for k in _bare}
+
+            try:
+                def _load_outreach(relpath, bare_name):
+                    mod = _load_module_from_path(
+                        f"_outreach_agent.{bare_name}",
+                        os.path.join(_OUTREACH_AGENT_DIR, relpath),
+                    )
+                    sys.modules[bare_name] = mod
+                    return mod
+
+                config_mod = _load_outreach("agent/config.py",            "agent.config")
+                _load_outreach("agent/exceptions.py",        "agent.exceptions")
+                _load_outreach("agent/results.py",           "agent.results")
+                _load_outreach("agent/tracer.py",            "agent.tracer")
+                _load_outreach("tools/tool.py",              "tools.tool")
+                _load_outreach("tools/email_clients.py",     "tools.email_clients")
+                _load_outreach("tools/email_prospects.py",   "tools.email_prospects")
+                _load_outreach("tools/schedule_demo.py",     "tools.schedule_demo")
+                _load_outreach("tools/schedule_followup.py", "tools.schedule_followup")
+
+                outreach_orch_mod = _load_module_from_path(
+                    "_outreach_agent.agent.orchestrator",
+                    os.path.join(_OUTREACH_AGENT_DIR, "agent", "orchestrator.py"),
+                )
+                OutreachOrchestrator = outreach_orch_mod.OutreachOrchestrator
+                OutreachAgentConfig  = config_mod.OutreachAgentConfig
+            finally:
+                for k, v in _saved.items():
+                    if v is None:
+                        sys.modules.pop(k, None)
+                    else:
+                        sys.modules[k] = v
+
+            config = OutreachAgentConfig(
+                spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
+                credentials_file=os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json"),
+                token_file=os.getenv("GOOGLE_TOKEN_FILE", "token.pickle"),
+                sender_email=os.environ["SENDER_EMAIL"],
+                sender_name=os.getenv("SENDER_NAME", ""),
+                company_name=os.getenv("COMPANY_NAME", ""),
+                bcc_email=os.getenv("BCC_EMAIL") or None,
+                calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "America/Denver"),
+                demo_duration_minutes=int(os.getenv("DEMO_DURATION_MINUTES", "60")),
+                followup_duration_minutes=int(os.getenv("FOLLOWUP_DURATION_MINUTES", "30")),
+                google_meet=os.getenv("GOOGLE_MEET", "true").lower() == "true",
+                followup_days=int(os.getenv("FOLLOWUP_DAYS", "7")),
+                client_checkin_days=int(os.getenv("CLIENT_CHECKIN_DAYS", "30")),
+                dry_run=os.getenv("OUTREACH_DRY_RUN", "false").lower() == "true",
+            )
+
+            run_result = OutreachOrchestrator(config).run()
+            emails_sent = sum(1 for e in run_result.emails_sent if e.success)
+
+            return StageResult(
+                stage="outreach",
+                status="completed",
+                people_written=emails_sent,
+                error="; ".join(run_result.errors) if run_result.errors else None,
+            )
+        except Exception as e:
+            log_trace("outreach_stage_error", {"error": str(e)})
+            return StageResult(stage="outreach", status="failed", error=str(e))
