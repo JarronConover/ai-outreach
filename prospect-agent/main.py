@@ -1,5 +1,5 @@
 from agent.tracer import log_trace
-from tools.people_sheet import append_people
+from tools.people_sheet import append_people, filter_duplicates
 from agent.orchestrator import ProspectingAgent
 from schemas.input import ICPInput
 from dotenv import load_dotenv
@@ -58,5 +58,17 @@ if __name__ == "__main__":
 
     log_trace("writing_to_sheets", {"people_count": len(people_output.people)})
     people_dicts = [p.model_dump() for p in people_output.people]
-    result = append_people(people_dicts)
-    print(f"\n{result}")
+
+    # Filter out duplicates
+    filtered_people, duplicates = filter_duplicates(people_dicts)
+
+    if duplicates:
+        print(f"\n⚠️  Skipped {len(duplicates)} duplicates (already in sheet):")
+        for email in duplicates:
+            print(f"   - {email}")
+
+    if filtered_people:
+        result = append_people(filtered_people)
+        print(f"\n✅ {result}")
+    else:
+        print("\n✅ No new people to add.")

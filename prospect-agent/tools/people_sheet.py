@@ -40,6 +40,51 @@ def _get_people_worksheet():
     return worksheet
 
 
+def get_existing_people() -> dict:
+    """Fetch all existing people from the People sheet.
+
+    Returns a dict keyed by email for fast duplicate checking.
+    """
+    try:
+        worksheet = _get_people_worksheet()
+        all_rows = worksheet.get_all_values()
+
+        if not all_rows or len(all_rows) < 2:  # Only header or empty
+            return {}
+
+        # Skip header row, build dict by email
+        existing_people = {}
+        for row in all_rows[1:]:
+            if len(row) > 3:  # Must have at least id, name, company_id, email
+                email = row[3].strip().lower() if row[3] else ""
+                if email:
+                    existing_people[email] = row
+
+        return existing_people
+    except Exception as e:
+        raise Exception(f"Failed to fetch existing people: {e}") from e
+
+
+def filter_duplicates(new_people: List[dict]) -> tuple[List[dict], List[str]]:
+    """Filter out people that already exist by email.
+
+    Returns:
+        (filtered_people, duplicate_emails) - list of new people and list of duplicates found
+    """
+    existing = get_existing_people()
+    filtered = []
+    duplicates = []
+
+    for person in new_people:
+        email = person.get("email", "").strip().lower()
+        if email and email in existing:
+            duplicates.append(email)
+        else:
+            filtered.append(person)
+
+    return filtered, duplicates
+
+
 def append_person(person_dict: dict) -> str:
     """Append a single person record to the People sheet."""
     try:
