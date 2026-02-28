@@ -20,7 +20,7 @@ class OutreachAgentConfig(BaseModel):
     company_name: str
 
     # Calendar settings
-    calendar_timezone: str = "America/New_York"
+    calendar_timezone: str = "America/Denver"
     demo_duration_minutes: int = 60
     followup_duration_minutes: int = 30
     google_meet: bool = True  # attach a Google Meet link to calendar events

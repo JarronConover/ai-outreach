@@ -10,7 +10,7 @@ Run:
     python main.py --export-trace    # write trace.json after the run
 
 Required environment variables (see .env.example):
-    SPREADSHEET_ID, SENDER_EMAIL, SENDER_NAME, COMPANY_NAME
+    GOOGLE_SHEET_ID, SENDER_EMAIL, SENDER_NAME, COMPANY_NAME
     GOOGLE_CREDENTIALS_FILE  (default: credentials.json)
     GOOGLE_TOKEN_FILE        (default: token.pickle)
 """
@@ -40,7 +40,7 @@ def _load_config(dry_run: bool) -> OutreachAgentConfig:
     load_dotenv()
 
     missing = [
-        var for var in ("SPREADSHEET_ID", "SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
+        var for var in ("GOOGLE_SHEET_ID", "SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
         if not os.getenv(var)
     ]
     if missing:
@@ -52,13 +52,13 @@ def _load_config(dry_run: bool) -> OutreachAgentConfig:
         sys.exit(1)
 
     return OutreachAgentConfig(
-        spreadsheet_id=os.environ["SPREADSHEET_ID"],
+        spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
         credentials_file=os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json"),
         token_file=os.getenv("GOOGLE_TOKEN_FILE", "token.pickle"),
         sender_email=os.environ["SENDER_EMAIL"],
         sender_name=os.environ["SENDER_NAME"],
         company_name=os.environ["COMPANY_NAME"],
-        calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "America/New_York"),
+        calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "America/Denver"),
         demo_duration_minutes=int(os.getenv("DEMO_DURATION_MINUTES", "60")),
         followup_duration_minutes=int(os.getenv("FOLLOWUP_DURATION_MINUTES", "30")),
         google_meet=os.getenv("GOOGLE_MEET", "true").lower() == "true",
