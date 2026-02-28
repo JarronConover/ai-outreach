@@ -252,13 +252,22 @@ class OrchestratorAgent:
         Temporarily load the outreach-agent into sys.path/sys.modules, build an
         OutreachOrchestrator, call fn(orchestrator), then restore the module state.
         """
-        saved = {k: sys.modules.get(k) for k in _OA_MODULE_KEYS}
+        # Also swap out the orchestrator-agent's local `schemas` package so the
+        # outreach-agent can import `schemas.crm` from the project root instead.
+        _schema_keys = [
+            "schemas", "schemas.crm", "schemas.sheet_config",
+            "schemas.input", "schemas.output",
+        ]
+        _all_keys = _OA_MODULE_KEYS + _schema_keys
+        saved = {k: sys.modules.get(k) for k in _all_keys}
+        _added_outreach = _OUTREACH_AGENT_DIR not in sys.path
+        _added_root = _PROJECT_ROOT not in sys.path
         try:
-            for k in _OA_MODULE_KEYS:
+            for k in _all_keys:
                 sys.modules.pop(k, None)
-            if _OUTREACH_AGENT_DIR not in sys.path:
+            if _added_outreach:
                 sys.path.insert(0, _OUTREACH_AGENT_DIR)
-            if _PROJECT_ROOT not in sys.path:
+            if _added_root:
                 sys.path.insert(0, _PROJECT_ROOT)
 
             from agent.config import OutreachAgentConfig   # noqa: E402
@@ -296,10 +305,16 @@ class OrchestratorAgent:
             orch = OutreachOrchestrator(config)
             return fn(orch)
         finally:
-            try:
-                sys.path.remove(_OUTREACH_AGENT_DIR)
-            except ValueError:
-                pass
+            if _added_outreach:
+                try:
+                    sys.path.remove(_OUTREACH_AGENT_DIR)
+                except ValueError:
+                    pass
+            if _added_root:
+                try:
+                    sys.path.remove(_PROJECT_ROOT)
+                except ValueError:
+                    pass
             for k, v in saved.items():
                 if v is None:
                     sys.modules.pop(k, None)
