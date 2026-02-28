@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Users, CalendarCheck, CalendarClock } from "lucide-react";
+import { Users, CalendarCheck, CalendarClock, Handshake } from "lucide-react";
 
 interface Stats {
   total_prospects: number;
+  clients: number;
   demos_scheduled: number;
   demos_completed: number;
 }
@@ -46,9 +47,14 @@ export function KpiCards({ refreshKey }: KpiCardsProps) {
   return (
     <div className="flex gap-4">
       <KpiCard
-        label="Total Prospects"
+        label="Total Contacts"
         value={v(stats?.total_prospects)}
         icon={<Users className="size-4" />}
+      />
+      <KpiCard
+        label="Clients"
+        value={v(stats?.clients)}
+        icon={<Handshake className="size-4" />}
       />
       <KpiCard
         label="Demos Scheduled"

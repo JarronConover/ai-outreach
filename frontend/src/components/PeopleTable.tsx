@@ -59,7 +59,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
     <div className="panel overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-white/40">
         <h2 className="text-sm font-semibold text-[#111827]">
-          Prospects
+          Contacts
           {people.length > 0 && (
             <span className="ml-2 text-xs font-normal text-[#9ca3af]">
               {people.length} total
@@ -81,7 +81,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
         <div className="px-5 py-12 text-center text-sm text-red-500">{error}</div>
       ) : people.length === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-[#9ca3af]">
-          No prospects yet. Run the agent to generate leads.
+          No contacts yet. Run the agent to generate leads.
         </div>
       ) : (
         <div className="overflow-x-auto">
