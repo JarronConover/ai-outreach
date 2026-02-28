@@ -1,9 +1,0 @@
-# Files Claude should never read or reference
-.env
-.env.*
-credentials.json
-token.pickle
-*.pickle
-*.pem
-*.key
-service_account*.json
