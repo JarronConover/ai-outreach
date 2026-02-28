@@ -169,7 +169,7 @@ class OrchestratorAgent:
 
             new_ids = []
             if people_dicts:
-                append_people(people_dicts)
+                append_people(people_dicts, industry=pipeline_input.industry)
                 new_ids = [p.get("id", "") for p in people_dicts]
 
             return StageResult(

@@ -9,10 +9,11 @@ class Person(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     company_id: str
+    company_name: Optional[str] = None
     email: str
     title: str
     linkedin: Optional[str] = None
-    stage: str = "PROSPECTING"
+    stage: str = "prospect"
     last_response: Optional[datetime] = None
     last_contact: Optional[datetime] = None
     last_demo_id: Optional[str] = None

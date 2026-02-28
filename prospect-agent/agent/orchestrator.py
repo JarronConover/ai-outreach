@@ -29,6 +29,7 @@ After your research, return a JSON object with this exact structure:
       "id": "unique-string",
       "name": "Full Name",
       "company_id": "company-name-slugified",
+      "company_name": "Full Company Name",
       "email": "email@company.com",
       "title": "Their Job Title",
       "linkedin": "https://linkedin.com/in/username",
@@ -44,6 +45,7 @@ After your research, return a JSON object with this exact structure:
 Be specific and realistic. Use real company names and real people you find through search.
 - If you cannot find a specific person's email, make a reasonable guess using the company's email format.
 - For company_id, use a slugified version of the company name (e.g., "mind-studios" from "Mind Studios").
+- For company_name, use the full human-readable company name (e.g., "Mind Studios").
 - For linkedin, only include if you found it; otherwise set to null."""
 
 

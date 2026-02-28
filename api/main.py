@@ -61,6 +61,9 @@ update_action_status = _pa_actions.update_action_status
 batch_update_action_status = _pa_actions.batch_update_action_status
 cancel_pending_actions = _pa_actions.cancel_pending_actions
 clear_all_actions = _pa_actions.clear_all_actions
+get_company_names = _pa_tools.get_company_names
+get_people_dicts = _pa_tools.get_people_dicts
+get_demos_dicts = _pa_tools.get_demos_dicts
 
 # prospect-agent/agent/orchestrator.py uses bare imports (`from schemas.input import ICPInput`).
 # Swap sys.modules so those bare imports resolve to prospect-agent's modules, not orchestrator-agent's.
@@ -92,10 +95,11 @@ load_dotenv()
 _seen_person_ids: set[str] = set()
 _stop_poller = threading.Event()
 _POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "60"))  # seconds
+_OUTREACH_INTERVAL = int(os.getenv("OUTREACH_INTERVAL_HOURS", "24")) * 3600  # seconds
 
 # Index positions in the People sheet header row
 _IDX_ID = 0
-_IDX_LAST_CONTACT = 9
+_IDX_LAST_CONTACT = 11
 
 
 def _start_outreach_job() -> str:
@@ -118,6 +122,15 @@ def _start_outreach_job() -> str:
     )
     thread.start()
     return job_id
+
+
+def _outreach_ticker():
+    """Background thread: fires outreach on a fixed cadence for follow-ups and check-ins."""
+    print(f"[ticker] started, interval={_OUTREACH_INTERVAL // 3600}h")
+    while not _stop_poller.wait(timeout=_OUTREACH_INTERVAL):
+        print("[ticker] scheduled outreach run — triggering follow-ups/check-ins")
+        job_id = _start_outreach_job()
+        print(f"[ticker] outreach job queued: {job_id}")
 
 
 def _sheet_poller():
@@ -158,6 +171,8 @@ async def lifespan(app: FastAPI):
 
     poller_thread = threading.Thread(target=_sheet_poller, daemon=True)
     poller_thread.start()
+    ticker_thread = threading.Thread(target=_outreach_ticker, daemon=True)
+    ticker_thread.start()
     yield
     _stop_poller.set()
 
@@ -219,7 +234,7 @@ class RunRequest(BaseModel):
     enable_post_deduplication: bool = True
 
 
-def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool):
+def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool, industry: str = ""):
     _jobs[job_id]["status"] = "running"
     _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
     try:
@@ -238,7 +253,7 @@ def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool):
             duplicates_skipped = len(duplicates)
 
         if people_dicts:
-            append_people(people_dicts)
+            append_people(people_dicts, industry=industry)
 
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
@@ -563,7 +578,7 @@ def start_prospect(req: ProspectRequest = ProspectRequest()):
 
     thread = threading.Thread(
         target=_run_prospect_job,
-        args=(job_id, icp, req.enable_post_deduplication),
+        args=(job_id, icp, req.enable_post_deduplication, icp.industry),
         daemon=True,
     )
     thread.start()
@@ -588,14 +603,30 @@ def list_jobs():
 
 @app.get("/people")
 def list_people():
-    """List all prospects from Google Sheets."""
-    raw = get_existing_people()
-    header = ["id", "name", "company_id", "email", "linkedin", "phone", "title", "stage", "last_response", "last_contact", "created_at", "updated_at"]
-    result = []
-    for row in raw.values():
-        person = {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
-        result.append(person)
-    return result
+    """List all prospects from Google Sheets, with company_name resolved from Companies sheet."""
+    people = get_people_dicts()
+    companies = get_company_names()
+    for person in people:
+        person["company_name"] = companies.get(person.get("company_id", ""), person.get("company_id", ""))
+    return people
+
+
+@app.get("/stats")
+def get_stats():
+    """Return KPI counts derived from the People and Demos sheets."""
+    people = get_people_dicts()
+    demos = get_demos_dicts()
+
+    stages = [p.get("stage", "").strip().upper() for p in people]
+    demo_statuses = [d.get("status", "").strip().lower() for d in demos]
+
+    return {
+        "total_prospects": len(people),
+        "interested": sum(1 for s in stages if s == "INTERESTED"),
+        "clients": sum(1 for s in stages if s == "CLIENT"),
+        "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
+        "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
+    }
 
 
 @app.get("/health")
