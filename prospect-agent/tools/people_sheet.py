@@ -198,9 +198,10 @@ def append_people(people_list: List[dict], industry: Optional[str] = None) -> st
             company_id = person.get("company_id", "").strip()
             if company_id and company_id not in existing_company_ids and company_id not in seen_companies:
                 seen_companies.add(company_id)
+                company_name = person.get("company_name", "") or company_id
                 companies_ws.append_row([
-                    company_id,   # id  (same as the name for prospect-generated companies)
-                    company_id,   # name
+                    company_id,    # id  (slug)
+                    company_name,  # name (full human-readable name)
                     "", "", "", "", "", "",  # address, city, state, zip, phone, website
                     industry or "",         # industry (passed through from ICP)
                     "",                     # employee_count
