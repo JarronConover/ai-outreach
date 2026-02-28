@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -18,6 +20,7 @@ class OutreachAgentConfig(BaseModel):
     sender_email: str
     sender_name: str
     company_name: str
+    bcc_email: Optional[str] = None  # always included as a calendar attendee
 
     # Calendar settings
     calendar_timezone: str = "America/Denver"

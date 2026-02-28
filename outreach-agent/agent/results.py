@@ -48,7 +48,6 @@ class OutreachRunResult(BaseModel):
     prospects_contacted: int = 0
     demos_scheduled: int = 0
     followups_sent: int = 0
-    demo_calendars_synced: int = 0
 
     errors: list[str] = []
 
@@ -70,7 +69,6 @@ class OutreachRunResult(BaseModel):
             "prospects_contacted": self.prospects_contacted,
             "demos_scheduled": self.demos_scheduled,
             "followups_sent": self.followups_sent,
-            "demo_calendars_synced": self.demo_calendars_synced,
             "errors": len(self.errors),
             "error_details": self.errors,
         }

@@ -97,7 +97,7 @@ class EmailProspectsTool(BaseTool):
             {"prospects_to_email": len(to_contact)},
         )
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
         for pwc in to_contact:
             subject, html_body = _build_email(

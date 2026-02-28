@@ -2,13 +2,13 @@
 Outreach Agent Orchestrator
 
 Reads People, Companies, and Demos from the "Fellowship CRM" Google Sheet,
-builds a CRMContext, then runs all five outreach tools in sequence:
+builds a CRMContext, then runs all four outreach tools in sequence:
 
   1. EmailClientsTool     – check-in emails to existing clients
   2. EmailProspectsTool   – intro emails to uncontacted new prospects
-  3. ScheduleDemoTool     – calendar events + confirmation emails for scheduled demos
+  3. ScheduleDemoTool     – calendar events + confirmation emails for scheduled demos;
+                            also writes demo.id to People.next_demo_id
   4. ScheduleFollowUpTool – follow-up emails for mid-pipeline contacts gone quiet
-  5. SyncDemoCalendarTool – catch-up calendar sync for manually-entered demo dates
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from tools.email_clients import EmailClientsTool
 from tools.email_prospects import EmailProspectsTool
 from tools.schedule_demo import ScheduleDemoTool
 from tools.schedule_followup import ScheduleFollowUpTool
-from tools.sync_demo_calendar import SyncDemoCalendarTool
 from tools.tool import GoogleAPIClient
 
 
@@ -54,11 +53,10 @@ class OutreachOrchestrator:
 
     def _init_tools(self) -> None:
         args = (self.api, self.config, self.tracer)
-        self.email_clients_tool    = EmailClientsTool(*args)
-        self.email_prospects_tool  = EmailProspectsTool(*args)
-        self.schedule_demo_tool    = ScheduleDemoTool(*args)
+        self.email_clients_tool     = EmailClientsTool(*args)
+        self.email_prospects_tool   = EmailProspectsTool(*args)
+        self.schedule_demo_tool     = ScheduleDemoTool(*args)
         self.schedule_followup_tool = ScheduleFollowUpTool(*args)
-        self.sync_demo_tool        = SyncDemoCalendarTool(*args)
 
     # ------------------------------------------------------------------
     # Main run
@@ -144,21 +142,72 @@ class OutreachOrchestrator:
             result.errors.append(f"[schedule_followup] {exc}")
 
         # ------------------------------------------------------------------
-        # Tool 5: Calendar sync for manually-entered demo dates
-        # ------------------------------------------------------------------
-        try:
-            sync_results = self.sync_demo_tool.execute(crm)
-            result.calendar_events_created.extend(sync_results)
-            result.demo_calendars_synced = sum(1 for r in sync_results if r.success)
-        except OutreachAgentError as exc:
-            self.tracer.log_error(exc, {"tool": "sync_demo_calendar"})
-            result.errors.append(f"[sync_demo_calendar] {exc}")
-
-        # ------------------------------------------------------------------
         # Wrap up
         # ------------------------------------------------------------------
         self.tracer.log_run_end(result.to_summary_dict())
         return result
+
+    # ------------------------------------------------------------------
+    # Plan (dry-run preview)
+    # ------------------------------------------------------------------
+
+    def plan(self) -> OutreachRunResult:
+        """
+        Run all tools in dry-run mode and return the planned actions.
+        The orchestrator's real dry_run setting is restored afterwards.
+        """
+        original = self.config.dry_run
+        self.config = self.config.model_copy(update={"dry_run": True})
+        try:
+            return self.run()
+        finally:
+            self.config = self.config.model_copy(update={"dry_run": original})
+
+    def print_plan(self, result: OutreachRunResult) -> None:
+        """Print a human-readable preview of every email and calendar event that would be sent."""
+        planned_emails = [e for e in result.emails_sent if e.success]
+        planned_events = [c for c in result.calendar_events_created if c.success]
+
+        print("\n" + "=" * 60)
+        print("  REVIEW – PLANNED ACTIONS")
+        print("=" * 60)
+
+        if not planned_emails and not planned_events:
+            print("\n  Nothing to send or create based on current CRM data.\n")
+            print("=" * 60 + "\n")
+            return
+
+        if planned_emails:
+            print(f"\n  EMAILS ({len(planned_emails)}):")
+            print("  " + "─" * 56)
+            for i, e in enumerate(planned_emails, 1):
+                label = e.email_type.replace("_", " ").upper()
+                print(f"  {i}. [{label}]")
+                print(f"     To:      {e.recipient_name} <{e.recipient_email}>")
+                print(f"     Subject: {e.subject}")
+
+        if planned_events:
+            print(f"\n  CALENDAR EVENTS ({len(planned_events)}):")
+            print("  " + "─" * 56)
+            for i, c in enumerate(planned_events, 1):
+                label = c.event_type.replace("_", " ").upper()
+                try:
+                    time_str = c.start_time.strftime("%A, %B %d at %I:%M %p").replace(" 0", " ")
+                except Exception:
+                    time_str = str(c.start_time)
+                print(f"  {i}. [{label}] {c.event_title}")
+                print(f"     When:      {time_str}")
+                print(f"     Attendees: {', '.join(c.attendees)}")
+
+        parts = []
+        if planned_emails:
+            parts.append(f"{len(planned_emails)} email{'s' if len(planned_emails) != 1 else ''}")
+        if planned_events:
+            n = len(planned_events)
+            parts.append(f"{n} calendar event{'s' if n != 1 else ''}")
+        print("\n  " + "─" * 56)
+        print(f"  Total: {' · '.join(parts)}")
+        print("=" * 60 + "\n")
 
     # ------------------------------------------------------------------
     # Utilities

@@ -1,17 +1,24 @@
 """
 Tool 3 – Schedule Demo Meetings
 
-For every Demo record in the Demos sheet where:
-  • status = "scheduled"
-  • discovery_date is set (the date/time of the upcoming meeting)
-  • calendar_event_id is empty (no Google Calendar event yet)
+Scans the Demos sheet for every row where:
+  • status            = "scheduled"
+  • date              is set
+  • calendar_event_id is empty  (not yet on the calendar)
 
-This tool:
-  1. Looks up the associated Person (via people_id) and Company (via company_id).
-  2. Creates a Google Calendar event and invites the contact – Google
-     automatically sends them a calendar invite.
-  3. Sends a personalised confirmation email via Gmail.
-  4. Writes the new event ID back to Demos.calendar_event_id (column P).
+For each matching demo the tool:
+  1. Creates a Google Calendar event with all three attendees:
+       • the contact's email
+       • SENDER_EMAIL  (from .env)
+       • BCC_EMAIL     (from .env, if set)
+     Google automatically sends calendar invites to all attendees.
+  2. Writes the new event ID back to Demos.calendar_event_id (column H).
+  3. Writes the demo's ID to People.next_demo_id (column J) for the
+     matching person, so the People sheet always reflects the upcoming demo.
+  4. Sends a personalised confirmation email to the contact.
+
+This tool is idempotent: once calendar_event_id is written the demo is
+excluded from future runs.
 """
 
 from __future__ import annotations
@@ -20,8 +27,8 @@ from datetime import datetime, timedelta, timezone
 
 from agent.exceptions import DemoSchedulingError, GmailAPIError
 from agent.results import CalendarEventResult, EmailResult
-from schemas.crm import CRMContext, Demo, DemoStatus
-from schemas.sheet_config import DemoColumns, SheetNames
+from schemas.crm import CRMContext, DemoStatus
+from schemas.sheet_config import DemoColumns, PeopleColumns, SheetNames
 from tools.tool import BaseTool
 
 
@@ -35,7 +42,7 @@ def _build_invite_email(
     meet_link: str | None,
     stage_label: str,
 ) -> tuple[str, str]:
-    date_str = demo_start.strftime("%A, %B %-d at %-I:%M %p")
+    date_str = demo_start.strftime("%A, %B %d at %I:%M %p").replace(" 0", " ")
     meet_section = (
         f'<p>Join via Google Meet: <a href="{meet_link}">{meet_link}</a></p>'
         if meet_link else ""
@@ -75,15 +82,24 @@ class ScheduleDemoTool(BaseTool):
     Creates calendar events and sends confirmation emails for scheduled demos.
 
     Filtering criteria (Demos sheet):
-        status          = "scheduled"
-        discovery_date  is set
+        status            = "scheduled"
+        date              is set
         calendar_event_id is empty
 
-    Sheet updates on success (Demos tab):
-        calendar_event_id ← Google Calendar event ID
+    Calendar attendees: contact email + sender_email + bcc_email (if set)
+
+    Sheet updates on success:
+        Demos.calendar_event_id ← Google Calendar event ID
+        People.next_demo_id     ← demo.id  (for the matching person)
     """
 
     tool_name = "schedule_demo"
+
+    def _attendees(self, person_email: str) -> list[str]:
+        return [
+            e for e in [person_email, self.config.sender_email, self.config.bcc_email]
+            if e
+        ]
 
     def execute(self, crm: CRMContext) -> list[tuple[CalendarEventResult, EmailResult]]:
         results: list[tuple[CalendarEventResult, EmailResult]] = []
@@ -91,7 +107,7 @@ class ScheduleDemoTool(BaseTool):
         to_schedule = [
             demo for demo in crm.demos
             if demo.status.lower() == DemoStatus.SCHEDULED
-            and demo.discovery_date is not None
+            and demo.date is not None
             and not demo.calendar_event_id
         ]
 
@@ -101,7 +117,6 @@ class ScheduleDemoTool(BaseTool):
         )
 
         for demo in to_schedule:
-            # Resolve person and company from the CRM context
             person = crm.people_by_id.get(demo.people_id)
             if not person or not person.email:
                 self.tracer.log_calendar_event_skipped(
@@ -112,21 +127,22 @@ class ScheduleDemoTool(BaseTool):
             company = crm.companies.get(demo.company_id)
             company_name = company.name if company else "their company"
 
-            demo_start: datetime = demo.discovery_date  # type: ignore[assignment]
+            demo_start: datetime = demo.date  # type: ignore[assignment]
             demo_end = demo_start + timedelta(minutes=self.config.demo_duration_minutes)
-            attendees = [person.email, self.config.sender_email]
+            attendees = self._attendees(person.email)
             stage_label = demo.current_stage_label
+            event_title = f"{stage_label}: {company_name}"
 
             if self.config.dry_run:
                 self.tracer.log_calendar_event_skipped(person.email, "dry_run=True")
                 self.tracer.log_email_skipped(person.email, "dry_run=True")
                 results.append((
                     CalendarEventResult(
-                        event_title=f"Discovery: {company_name}",
+                        event_title=event_title,
                         attendees=attendees,
                         start_time=demo_start,
                         end_time=demo_end,
-                        event_type="demo_discovery",
+                        event_type=f"demo_{demo.type}",
                         created_at=datetime.now(timezone.utc),
                         success=True,
                         error="dry_run – not created",
@@ -134,7 +150,7 @@ class ScheduleDemoTool(BaseTool):
                     EmailResult(
                         recipient_email=person.email,
                         recipient_name=person.name,
-                        subject=f"Discovery Confirmed – {self.config.company_name}",
+                        subject=f"{stage_label} Confirmed – {self.config.company_name}",
                         email_type="demo_invite",
                         sent_at=datetime.now(timezone.utc),
                         success=True,
@@ -146,11 +162,10 @@ class ScheduleDemoTool(BaseTool):
             # --- 1. Create Google Calendar event ---
             try:
                 event_resp = self.api.create_event(
-                    summary=f"Discovery: {company_name} × {self.config.company_name}",
+                    summary=f"{event_title} × {self.config.company_name}",
                     description=(
-                        f"Discovery call with {person.name} from {company_name}.\n\n"
-                        f"Demo ID: {demo.id}\n"
-                        f"Notes: {demo.discovery or 'N/A'}"
+                        f"{stage_label} with {person.name} from {company_name}.\n\n"
+                        f"Demo ID: {demo.id}"
                     ),
                     start=demo_start,
                     end=demo_end,
@@ -166,7 +181,7 @@ class ScheduleDemoTool(BaseTool):
                     .get("uri")
                 )
 
-                # Write event ID back to the Demos sheet (column P)
+                # Write event ID back to Demos sheet (idempotency guard)
                 self.api.update_cell(
                     self.config.spreadsheet_id,
                     SheetNames.DEMOS,
@@ -175,22 +190,32 @@ class ScheduleDemoTool(BaseTool):
                     event_id,
                 )
 
+                # Write demo ID to People.next_demo_id so the People sheet
+                # always reflects the contact's upcoming scheduled demo
+                self.api.update_cell(
+                    self.config.spreadsheet_id,
+                    SheetNames.PEOPLE,
+                    person.row_index,
+                    PeopleColumns.NEXT_DEMO_ID,
+                    demo.id,
+                )
+
                 self.tracer.log_calendar_event_created(
                     event_id=event_id,
-                    event_title=f"Discovery: {company_name}",
+                    event_title=event_title,
                     attendees=attendees,
                     start_time=demo_start.isoformat(),
                     end_time=demo_end.isoformat(),
-                    event_type="demo_discovery",
+                    event_type=f"demo_{demo.type}",
                 )
                 cal_result = CalendarEventResult(
                     event_id=event_id,
-                    event_title=f"Discovery: {company_name}",
+                    event_title=event_title,
                     event_link=event_link,
                     attendees=attendees,
                     start_time=demo_start,
                     end_time=demo_end,
-                    event_type="demo_discovery",
+                    event_type=f"demo_{demo.type}",
                     created_at=datetime.now(timezone.utc),
                     success=True,
                 )
@@ -202,11 +227,11 @@ class ScheduleDemoTool(BaseTool):
                 self.tracer.log_error(err, {"demo_id": demo.id})
                 results.append((
                     CalendarEventResult(
-                        event_title=f"Discovery: {company_name}",
+                        event_title=event_title,
                         attendees=attendees,
                         start_time=demo_start,
                         end_time=demo_end,
-                        event_type="demo_discovery",
+                        event_type=f"demo_{demo.type}",
                         created_at=datetime.now(timezone.utc),
                         success=False,
                         error=str(err),
@@ -241,6 +266,18 @@ class ScheduleDemoTool(BaseTool):
                     subject=subject,
                     html_body=html_body,
                 )
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                for col, val in [
+                    (PeopleColumns.LAST_CONTACT, "email"),
+                    (PeopleColumns.LAST_CONTACT_DATE, now_str),
+                ]:
+                    self.api.update_cell(
+                        self.config.spreadsheet_id,
+                        SheetNames.PEOPLE,
+                        person.row_index,
+                        col,
+                        val,
+                    )
                 self.tracer.log_email_sent(
                     recipient_email=person.email,
                     recipient_name=person.name,

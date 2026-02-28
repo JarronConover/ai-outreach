@@ -58,6 +58,7 @@ def _load_config(dry_run: bool) -> OutreachAgentConfig:
         sender_email=os.environ["SENDER_EMAIL"],
         sender_name=os.environ["SENDER_NAME"],
         company_name=os.environ["COMPANY_NAME"],
+        bcc_email=os.getenv("BCC_EMAIL") or None,
         calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "America/Denver"),
         demo_duration_minutes=int(os.getenv("DEMO_DURATION_MINUTES", "60")),
         followup_duration_minutes=int(os.getenv("FOLLOWUP_DURATION_MINUTES", "30")),
@@ -80,6 +81,11 @@ def _parse_args() -> argparse.Namespace:
         help="Log all planned actions without sending emails or creating calendar events.",
     )
     parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip the confirmation prompt and send immediately (useful for automated runs).",
+    )
+    parser.add_argument(
         "--export-trace",
         metavar="FILE",
         nargs="?",
@@ -92,12 +98,41 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
-    if args.dry_run:
-        print("[DRY RUN] No emails will be sent and no calendar events will be created.\n")
-
     config = _load_config(dry_run=args.dry_run)
     orchestrator = OutreachOrchestrator(config)
 
+    # ── Step 1: Plan (always runs as dry-run internally) ──────────────
+    plan = orchestrator.plan()
+    orchestrator.print_plan(plan)
+
+    # ── Step 2: Dry-run mode – show plan only, no prompt ─────────────
+    if args.dry_run:
+        print("[DRY RUN] No emails sent and no calendar events created.\n")
+        if args.export_trace:
+            orchestrator.export_trace(args.export_trace)
+            print(f"[INFO] Trace exported to {args.export_trace}")
+        return
+
+    # ── Step 3: Nothing to do ─────────────────────────────────────────
+    planned_emails = [e for e in plan.emails_sent if e.success]
+    planned_events = [c for c in plan.calendar_events_created if c.success]
+    if not planned_emails and not planned_events:
+        print("Nothing to do.")
+        return
+
+    # ── Step 4: Confirm ───────────────────────────────────────────────
+    if not args.yes:
+        try:
+            answer = input("Proceed? [y/N] ").strip().lower()
+        except KeyboardInterrupt:
+            print("\nAborted.")
+            return
+        if answer != "y":
+            print("Aborted.")
+            return
+        print()
+
+    # ── Step 5: Execute live ──────────────────────────────────────────
     result = orchestrator.run()
     orchestrator.print_summary(result)
 

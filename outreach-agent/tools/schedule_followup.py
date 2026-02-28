@@ -6,8 +6,9 @@ Sends a follow-up email to People who are mid-pipeline (stage is "contacted",
 configured followup_days threshold.
 
 This tool sends email-only follow-ups (no calendar event) to re-engage contacts
-who have gone quiet.  If a formal meeting needs scheduling, the demo dates in
-the Demos sheet should be set and SyncDemoCalendarTool will handle the event.
+who have gone quiet.  If a formal meeting needs scheduling, add a row to the
+Demos sheet with status="scheduled" and a date — ScheduleDemoTool will handle
+the calendar event.
 
 After a successful send the tool writes back to the People sheet:
     last_contact      ← "email"
@@ -80,8 +81,7 @@ class ScheduleFollowUpTool(BaseTool):
 
     Filtering criteria (People sheet):
         stage in ("contacted", "demo_completed", "pricing")
-        AND last_contact_date is not null
-        AND last_contact_date < today − followup_days
+        AND (last_contact_date is null  OR  last_contact_date < today − followup_days)
 
     Sheet updates on success (People tab):
         last_contact      ← "email"
@@ -98,8 +98,10 @@ class ScheduleFollowUpTool(BaseTool):
             pwc for pwc in crm.people_with_company
             if pwc.stage in _FOLLOWUP_STAGES
             and pwc.email
-            and pwc.person.last_contact_date is not None
-            and pwc.person.last_contact_date < cutoff
+            and (
+                pwc.person.last_contact_date is None
+                or pwc.person.last_contact_date < cutoff
+            )
         ]
 
         self.tracer.log_tool_start(
@@ -107,7 +109,7 @@ class ScheduleFollowUpTool(BaseTool):
             {"contacts_to_follow_up": len(to_followup)},
         )
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
         for pwc in to_followup:
             subject, html_body = _build_followup_email(
