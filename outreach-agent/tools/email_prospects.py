@@ -87,7 +87,7 @@ class EmailProspectsTool(BaseTool):
 
         to_contact = [
             pwc for pwc in crm.people_with_company
-            if pwc.stage.lower() == Stage.PROSPECT
+            if pwc.stage.lower() in (Stage.PROSPECT, "prospecting")
             and pwc.person.last_contact_date is None
             and pwc.email
         ]

@@ -32,7 +32,7 @@ After your research, return a JSON object with this exact structure:
       "email": "email@company.com",
       "title": "Their Job Title",
       "linkedin": "https://linkedin.com/in/username",
-      "stage": "PROSPECTING",
+      "stage": "prospect",
       "last_response": null,
       "last_contact": null,
       "created_at": "2026-02-28T00:00:00",
