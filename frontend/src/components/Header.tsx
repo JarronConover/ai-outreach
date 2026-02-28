@@ -4,9 +4,9 @@ export function Header() {
       <div className="max-w-7xl mx-auto flex items-center gap-3">
         <span className="w-2.5 h-2.5 rounded-full bg-[#0d9488] shrink-0" />
         <h1 className="text-lg font-semibold text-[#111827] tracking-tight">
-          AI Outreach
+          Scout
         </h1>
-        <span className="text-[#9ca3af] text-sm ml-1">— Autonomous SDR</span>
+        <span className="text-[#9ca3af] text-sm ml-1">— AI-assisted lead gen & outreach drafts</span>
       </div>
     </header>
   );
