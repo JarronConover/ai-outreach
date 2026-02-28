@@ -58,11 +58,6 @@ class ProspectingAgent:
             max_results=5,
             tavily_api_key=os.environ.get("TAVILY_API_KEY", ""),
         )
-        self._agent = create_agent(
-            model=self._llm,
-            tools=[self._search_tool],
-            system_prompt=_SYSTEM_PROMPT,
-        )
 
     def _build_search_prompt(self, icp: ICPInput) -> str:
         roles = ", ".join(icp.roles_to_target)
@@ -76,12 +71,29 @@ class ProspectingAgent:
             f"Return the results as the JSON structure described."
         )
 
-    def _discover_and_structure_leads(self, icp: ICPInput) -> PeopleOutput:
-        log_trace("start", {"icp": icp.model_dump()})
+    def _build_agent_with_exclusions(self, existing_emails: list = None) -> any:
+        """Build an agent with existing emails in the system prompt."""
+        system_prompt = _SYSTEM_PROMPT
+        if existing_emails:
+            excluded_list = "\n".join([f"- {email}" for email in existing_emails])
+            system_prompt += f"\n\nIMPORTANT: Do NOT include these people (already in the system):\n{excluded_list}"
+
+        return create_agent(
+            model=self._llm,
+            tools=[self._search_tool],
+            system_prompt=system_prompt,
+        )
+
+    def _discover_and_structure_leads(self, icp: ICPInput, existing_emails: list = None) -> PeopleOutput:
+        log_trace("start", {"icp": icp.model_dump(), "existing_emails_count": len(existing_emails or [])})
+
+        # Build agent with exclusions
+        agent = self._build_agent_with_exclusions(existing_emails)
+
         prompt = self._build_search_prompt(icp)
         log_trace("search_prompt", {"prompt": prompt})
 
-        result = self._agent.invoke({"messages": [HumanMessage(content=prompt)]})
+        result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
         # Extract the final AI message content (handle both string and content block formats)
         messages = result.get("messages", [])
         if messages:
@@ -106,5 +118,14 @@ class ProspectingAgent:
         except Exception as e:
             raise StructuredOutputError(f"Failed to parse structured output: {e}\nRaw: {raw_output}") from e
 
-    def run(self, icp: ICPInput) -> PeopleOutput:
-        return self._discover_and_structure_leads(icp)
+    def run(self, icp: ICPInput, existing_emails: list = None) -> PeopleOutput:
+        """Run the prospecting agent.
+
+        Args:
+            icp: Ideal Customer Profile
+            existing_emails: List of emails to exclude from search (optional)
+
+        Returns:
+            PeopleOutput with discovered people
+        """
+        return self._discover_and_structure_leads(icp, existing_emails)

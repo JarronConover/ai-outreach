@@ -1,5 +1,5 @@
 from agent.tracer import log_trace
-from tools.people_sheet import append_people, filter_duplicates
+from tools.people_sheet import append_people, filter_duplicates, get_existing_people
 from agent.orchestrator import ProspectingAgent
 from schemas.input import ICPInput
 from dotenv import load_dotenv
@@ -45,10 +45,21 @@ ICP = ICPInput(
     num_people_per_company=2,
 )
 
+# --- Configuration ---
+ENABLE_POST_DEDUPLICATION = True  # Set to False to skip the safety check after agent runs
+
 if __name__ == "__main__":
     print("Starting Prospecting Agent...")
+
+    # Fetch existing people to avoid duplicates
+    print("Checking for existing people in sheet...")
+    existing_people = get_existing_people()
+    existing_emails = list(existing_people.keys())
+    print(f"  Found {len(existing_emails)} existing people")
+
+    # Run agent with exclusion list
     agent = ProspectingAgent()
-    people_output = agent.run(ICP)
+    people_output = agent.run(ICP, existing_emails=existing_emails)
 
     print(f"\nFound {len(people_output.people)} people:")
     for person in people_output.people:
@@ -59,16 +70,15 @@ if __name__ == "__main__":
     log_trace("writing_to_sheets", {"people_count": len(people_output.people)})
     people_dicts = [p.model_dump() for p in people_output.people]
 
-    # Filter out duplicates
-    filtered_people, duplicates = filter_duplicates(people_dicts)
+    # Optional: Filter out duplicates as safety net
+    if ENABLE_POST_DEDUPLICATION:
+        filtered_people, duplicates = filter_duplicates(people_dicts)
+        if duplicates:
+            print(f"\n⚠️  Safety check: Skipped {len(duplicates)} duplicates")
+        people_dicts = filtered_people
 
-    if duplicates:
-        print(f"\n⚠️  Skipped {len(duplicates)} duplicates (already in sheet):")
-        for email in duplicates:
-            print(f"   - {email}")
-
-    if filtered_people:
-        result = append_people(filtered_people)
+    if people_dicts:
+        result = append_people(people_dicts)
         print(f"\n✅ {result}")
     else:
         print("\n✅ No new people to add.")

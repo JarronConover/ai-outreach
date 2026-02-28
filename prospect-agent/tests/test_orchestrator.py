@@ -44,4 +44,4 @@ def test_run_calls_discover(sample_icp, mock_people_output):
     agent = ProspectingAgent()
     with patch.object(agent, "_discover_and_structure_leads", return_value=mock_people_output) as mock_discover:
         agent.run(sample_icp)
-    mock_discover.assert_called_once_with(sample_icp)
+    mock_discover.assert_called_once_with(sample_icp, None)
