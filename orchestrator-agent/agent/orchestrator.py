@@ -183,6 +183,18 @@ class OrchestratorAgent:
             if _PROJECT_ROOT not in sys.path:
                 sys.path.insert(0, _PROJECT_ROOT)
 
+            # Pre-register schemas.crm and schemas.sheet_config from the project root.
+            # sys.modules["schemas"] already points to orchestrator-agent/schemas/ (which
+            # has no crm.py), so we inject these two sub-modules directly.  They don't
+            # conflict with anything and must stay in sys.modules for the duration of the
+            # outreach run (methods call `from schemas.crm import …` lazily).
+            for _name, _relpath in [
+                ("schemas.crm",         "schemas/crm.py"),
+                ("schemas.sheet_config","schemas/sheet_config.py"),
+            ]:
+                if _name not in sys.modules:
+                    _load_module_from_path(_name, os.path.join(_PROJECT_ROOT, _relpath))
+
             # Bare module names the outreach orchestrator uses at import time.
             _bare = [
                 "agent.config", "agent.exceptions", "agent.results", "agent.tracer",
