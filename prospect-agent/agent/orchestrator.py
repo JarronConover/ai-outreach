@@ -112,6 +112,9 @@ class ProspectingAgent:
             if not json_match:
                 raise StructuredOutputError("No JSON people block found in agent output.")
             data = json.loads(json_match.group())
+            # Strip LLM-generated ids so Pydantic default_factory generates valid UUID4s
+            for person in data.get("people", []):
+                person.pop("id", None)
             people_output = PeopleOutput(**data)
             log_trace("structured_output", {"people_count": len(people_output.people)})
             return people_output
