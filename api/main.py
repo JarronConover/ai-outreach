@@ -2,7 +2,9 @@ import sys
 import os
 import uuid
 import threading
+import time
 import importlib.util
+from contextlib import asynccontextmanager
 from typing import Optional, List
 from datetime import datetime
 
@@ -73,7 +75,82 @@ finally:
 
 load_dotenv()
 
-app = FastAPI(title="AI Outreach API", version="0.1.0")
+# ---------------------------------------------------------------------------
+# Sheet poller — watches for new PROSPECTING people and fires outreach jobs
+# ---------------------------------------------------------------------------
+_seen_person_ids: set[str] = set()
+_stop_poller = threading.Event()
+_POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "15"))  # seconds
+
+# Index positions in the People sheet header row
+_IDX_ID = 0
+_IDX_STAGE = 7
+
+
+def _start_outreach_job() -> str:
+    """Enqueue a pipeline job for the outreach stage only."""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        "job_id": job_id,
+        "status": "pending",
+        "type": "poller_outreach",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    pipeline_input = PipelineInput(
+        **_DEFAULT_ICP.model_dump(),
+        stages=["outreach"],
+    )
+    thread = threading.Thread(
+        target=_run_pipeline_job,
+        args=(job_id, pipeline_input),
+        daemon=True,
+    )
+    thread.start()
+    return job_id
+
+
+def _sheet_poller():
+    """Background thread: polls Google Sheets and triggers outreach for new PROSPECTING people."""
+    print(f"[poller] started, interval={_POLL_INTERVAL}s")
+    while not _stop_poller.wait(timeout=_POLL_INTERVAL):
+        try:
+            people = get_existing_people()  # dict keyed by email, values are raw rows
+            new_ids = []
+            for row in people.values():
+                person_id = row[_IDX_ID] if len(row) > _IDX_ID else ""
+                stage = row[_IDX_STAGE] if len(row) > _IDX_STAGE else ""
+                if person_id and stage == "PROSPECTING" and person_id not in _seen_person_ids:
+                    _seen_person_ids.add(person_id)
+                    new_ids.append(person_id)
+
+            if new_ids:
+                print(f"[poller] detected {len(new_ids)} new PROSPECTING person(s) — triggering outreach")
+                job_id = _start_outreach_job()
+                print(f"[poller] outreach job queued: {job_id}")
+        except Exception as e:
+            print(f"[poller] error during poll: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Seed seen IDs from the current sheet state so we don't re-trigger on startup
+    try:
+        people = get_existing_people()
+        for row in people.values():
+            pid = row[_IDX_ID] if len(row) > _IDX_ID else ""
+            if pid:
+                _seen_person_ids.add(pid)
+        print(f"[poller] seeded {len(_seen_person_ids)} existing person IDs")
+    except Exception as e:
+        print(f"[poller] failed to seed existing people: {e}")
+
+    poller_thread = threading.Thread(target=_sheet_poller, daemon=True)
+    poller_thread.start()
+    yield
+    _stop_poller.set()
+
+
+app = FastAPI(title="AI Outreach API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
