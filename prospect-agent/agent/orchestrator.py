@@ -75,9 +75,17 @@ class ProspectingAgent:
         log_trace("search_prompt", {"prompt": prompt})
 
         result = self._agent.invoke({"messages": [HumanMessage(content=prompt)]})
-        # Extract the final AI message content
+        # Extract the final AI message content (handle both string and content block formats)
         messages = result.get("messages", [])
-        raw_output = messages[-1].content if messages else ""
+        if messages:
+            content = messages[-1].content
+            # If content is a list of content blocks, extract text
+            if isinstance(content, list):
+                raw_output = "\n".join([block.get("text", "") if isinstance(block, dict) else str(block) for block in content])
+            else:
+                raw_output = str(content)
+        else:
+            raw_output = ""
         log_trace("raw_output", {"output": raw_output})
 
         try:
