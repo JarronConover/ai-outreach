@@ -38,6 +38,10 @@ _COMPANIES_HEADER_ROW = [
     "phone", "website", "industry", "employee_count",
 ]
 
+_DEMOS_HEADER_ROW = [
+    "id", "people_id", "company_id", "type", "date", "status", "count", "event_id",
+]
+
 
 def _get_client():
     creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
@@ -97,6 +101,24 @@ def get_people_dicts() -> list[dict]:
         return result
     except Exception as e:
         raise Exception(f"Failed to fetch people: {e}") from e
+
+
+def get_demos_dicts() -> list[dict]:
+    """Fetch all demos from the Demos sheet as a list of dicts."""
+    try:
+        sheet = _get_client()
+        ws = _get_worksheet(sheet, "Demos", header=_DEMOS_HEADER_ROW)
+        all_rows = ws.get_all_values()
+        if not all_rows or len(all_rows) < 2:
+            return []
+        header = [h.strip() for h in all_rows[0]]
+        return [
+            {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
+            for row in all_rows[1:]
+            if any(cell.strip() for cell in row)
+        ]
+    except Exception as e:
+        raise Exception(f"Failed to fetch demos: {e}") from e
 
 
 def get_existing_people() -> dict:

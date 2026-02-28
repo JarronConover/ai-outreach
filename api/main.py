@@ -53,6 +53,7 @@ filter_duplicates = _pa_tools.filter_duplicates
 get_existing_people = _pa_tools.get_existing_people
 get_company_names = _pa_tools.get_company_names
 get_people_dicts = _pa_tools.get_people_dicts
+get_demos_dicts = _pa_tools.get_demos_dicts
 
 # prospect-agent/agent/orchestrator.py uses bare imports (`from schemas.input import ICPInput`).
 # Swap sys.modules so those bare imports resolve to prospect-agent's modules, not orchestrator-agent's.
@@ -365,6 +366,24 @@ def list_people():
     for person in people:
         person["company_name"] = companies.get(person.get("company_id", ""), person.get("company_id", ""))
     return people
+
+
+@app.get("/stats")
+def get_stats():
+    """Return KPI counts derived from the People and Demos sheets."""
+    people = get_people_dicts()
+    demos = get_demos_dicts()
+
+    stages = [p.get("stage", "").strip().upper() for p in people]
+    demo_statuses = [d.get("status", "").strip().lower() for d in demos]
+
+    return {
+        "total_prospects": len(people),
+        "interested": sum(1 for s in stages if s == "INTERESTED"),
+        "clients": sum(1 for s in stages if s == "CLIENT"),
+        "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
+        "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
+    }
 
 
 @app.get("/health")

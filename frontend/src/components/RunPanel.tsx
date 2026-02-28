@@ -57,36 +57,13 @@ export function RunPanel({ onJobComplete }: RunPanelProps) {
         {isStarting ? "Starting…" : isPolling ? "Running…" : "Run Agent"}
       </Button>
 
-      {job && (
-        <div className="rounded-lg border border-[#e5e7eb] bg-[#f9fafb] p-4 text-sm space-y-2">
+      {job?.status === "completed" && (
+        <div className="rounded-lg border border-white/40 bg-white/30 p-4 text-sm space-y-2">
           <div className="flex items-center gap-2 font-medium">
-            {job.status === "pending" && (
-              <>
-                <Loader2 className="size-4 animate-spin text-[#9ca3af]" />
-                <span className="text-[#4b5563]">Pending…</span>
-              </>
-            )}
-            {job.status === "running" && (
-              <>
-                <Loader2 className="size-4 animate-spin text-[#0d9488]" />
-                <span className="text-[#0d9488]">Running</span>
-              </>
-            )}
-            {job.status === "completed" && (
-              <>
-                <CheckCircle2 className="size-4 text-green-600" />
-                <span className="text-green-700">Completed</span>
-              </>
-            )}
-            {job.status === "failed" && (
-              <>
-                <XCircle className="size-4 text-red-500" />
-                <span className="text-red-600">Failed</span>
-              </>
-            )}
+            <CheckCircle2 className="size-4 text-green-600" />
+            <span className="text-green-700">Completed</span>
           </div>
-
-          {job.status === "completed" && job.result && (
+          {job.result && (
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-1">
               <dt className="text-[#9ca3af]">Found</dt>
               <dd className="font-medium text-[#111827]">{job.result.people_found ?? "—"}</dd>
@@ -96,10 +73,16 @@ export function RunPanel({ onJobComplete }: RunPanelProps) {
               <dd className="font-medium text-[#111827]">{job.result.duplicates_skipped ?? "—"}</dd>
             </dl>
           )}
+        </div>
+      )}
 
-          {job.status === "failed" && job.error && (
-            <p className="text-xs text-red-500 break-all">{job.error}</p>
-          )}
+      {job?.status === "failed" && (
+        <div className="rounded-lg border border-red-200/60 bg-red-50/40 p-4 text-sm">
+          <div className="flex items-center gap-2 font-medium mb-1">
+            <XCircle className="size-4 text-red-500" />
+            <span className="text-red-600">Failed</span>
+          </div>
+          {job.error && <p className="text-xs text-red-500 break-all">{job.error}</p>}
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { RunPanel } from "@/components/RunPanel";
 import { PeopleTable } from "@/components/PeopleTable";
+import { KpiCards } from "@/components/KpiCards";
 
 export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -11,14 +12,17 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6]">
+    <div className="min-h-screen">
       <Header />
-      <main className="max-w-7xl mx-auto px-6 py-6 flex gap-5 items-start">
-        <aside className="w-72 shrink-0">
-          <RunPanel onJobComplete={handleJobComplete} />
-        </aside>
-        <div className="flex-1 min-w-0">
-          <PeopleTable refreshKey={refreshKey} />
+      <main className="max-w-7xl mx-auto px-6 py-6 flex flex-col gap-5">
+        <KpiCards refreshKey={refreshKey} />
+        <div className="flex gap-5 items-start">
+          <aside className="w-72 shrink-0">
+            <RunPanel onJobComplete={handleJobComplete} />
+          </aside>
+          <div className="flex-1 min-w-0">
+            <PeopleTable refreshKey={refreshKey} />
+          </div>
         </div>
       </main>
     </div>

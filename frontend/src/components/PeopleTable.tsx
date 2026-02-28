@@ -57,7 +57,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
 
   return (
     <div className="panel overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-4 border-b border-[#e5e7eb]">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/40">
         <h2 className="text-sm font-semibold text-[#111827]">
           Prospects
           {people.length > 0 && (
@@ -87,7 +87,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#e5e7eb] bg-[#f9fafb]">
+              <tr className="border-b border-[#e5e7eb] bg-white/30">
                 {["Name", "Title", "Company", "Email", "LinkedIn", "Stage"].map((h) => (
                   <th
                     key={h}
@@ -102,7 +102,7 @@ export function PeopleTable({ refreshKey }: PeopleTableProps) {
               {people.map((p, i) => (
                 <tr
                   key={p.id || i}
-                  className="border-b border-[#f3f4f6] hover:bg-[#f9fafb] transition-colors"
+                  className="border-b border-white/40 hover:bg-white/30 transition-colors"
                 >
                   <td className="px-4 py-3 font-medium text-[#111827] whitespace-nowrap">
                     {p.name || "—"}
