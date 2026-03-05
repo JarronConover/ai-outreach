@@ -1,0 +1,24 @@
+{
+  "industry": "Personal Injury Law Firms",
+  "company_size": "10-250 employees",
+  "roles_to_target": [
+    "Managing Partner",
+    "Partner",
+    "Founding Partner",
+    "Operations Manager",
+    "Firm Administrator",
+    "Intake Manager",
+    "Intake Director"
+  ],
+  "pain_points": [
+    "Missed inbound calls from potential clients",
+    "Slow follow-up after initial inquiry",
+    "Leads contacting multiple law firms before response",
+    "Manual data entry into case management systems",
+    "No after-hours or weekend intake coverage",
+    "High intake staff turnover requiring constant retraining"
+  ],
+  "location": "Utah",
+  "num_companies": 1,
+  "num_people_per_company": 5
+}

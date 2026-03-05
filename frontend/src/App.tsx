@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { RunPanel } from "@/components/RunPanel";
 import { PendingActionsWidget } from "@/components/PendingActionsWidget";
+import { NeedsResponseWidget } from "@/components/NeedsResponseWidget";
 import { PeopleTable } from "@/components/PeopleTable";
 import { DemosWidget } from "@/components/DemosWidget";
 import { KpiCards } from "@/components/KpiCards";
@@ -57,6 +58,7 @@ export default function App() {
           <div className="flex-1 min-w-0 flex flex-col gap-5">
             <PeopleTable people={dashboard?.people ?? []} loading={loading} onRefresh={fetchDashboard} />
             <DemosWidget demos={dashboard?.demos ?? []} loading={loading} onRefresh={fetchDashboard} />
+            <NeedsResponseWidget />
             <PendingActionsWidget onJobComplete={handleJobComplete} />
           </div>
         </div>

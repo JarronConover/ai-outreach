@@ -1,6 +1,7 @@
 import sys
 import os
 import uuid
+import json
 import threading
 import time
 import importlib.util
@@ -47,6 +48,14 @@ _pa_exceptions = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "agent", "except
 _pa_tools = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "people_sheet.py"), "_api.pa.tools.people_sheet")
 _pa_demos = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "demos_sheet.py"), "_api.pa.tools.demos_sheet")
 _pa_actions = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "actions_sheet.py"), "_api.pa.tools.actions_sheet")
+
+_INBOX_AGENT_DIR = os.path.join(os.path.dirname(__file__), "..", "inbox-agent")
+_ia_emails = _import_from(
+    os.path.join(_INBOX_AGENT_DIR, "tools", "emails_sheet.py"),
+    "_api.ia.tools.emails_sheet",
+)
+get_emails_needing_response = _ia_emails.get_emails_needing_response
+update_inbox_email_status = _ia_emails.update_email_status
 
 ICPInput = _pa_input.ICPInput
 log_trace = _pa_tracer.log_trace
@@ -185,26 +194,17 @@ app.add_middleware(
 # In-memory job store
 _jobs: dict[str, dict] = {}
 
-# Default ICP — override via request body
-_DEFAULT_ICP = ICPInput(
-    industry="Personal Injury Law Firms",
-    company_size="10-250 employees",
-    roles_to_target=[
-        "Managing Partner", "Partner", "Founding Partner",
-        "Operations Manager", "Firm Administrator", "Intake Manager", "Intake Director",
-    ],
-    pain_points=[
-        "Missed inbound calls from potential clients",
-        "Slow follow-up after initial inquiry",
-        "Leads contacting multiple law firms before response",
-        "Manual data entry into case management systems",
-        "No after-hours or weekend intake coverage",
-        "High intake staff turnover requiring constant retraining",
-    ],
-    location="Utah",
-    num_companies=1,
-    num_people_per_company=5,
-)
+# Default ICP — loaded from api/icp_config.json, override via request body
+_ICP_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "icp_config.json")
+
+
+def _load_default_icp() -> "ICPInput":
+    with open(_ICP_CONFIG_PATH, "r") as f:
+        data = json.load(f)
+    return ICPInput(**data)
+
+
+_DEFAULT_ICP = _load_default_icp()
 
 
 class ProspectRequest(BaseModel):
@@ -680,3 +680,88 @@ def get_dashboard():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Inbox agent job helper
+# ---------------------------------------------------------------------------
+
+
+def _run_inbox_job(job_id: str):
+    """Background thread: runs InboxOrchestrator and scans the Gmail inbox."""
+    _jobs[job_id]["status"] = "running"
+    _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
+    try:
+        # Load inbox-agent modules via importlib to avoid namespace collisions
+        _inbox_orch_mod = _import_from(
+            os.path.join(_INBOX_AGENT_DIR, "agent", "orchestrator.py"),
+            "_api.ia.agent.orchestrator",
+        )
+        _inbox_config_mod = _import_from(
+            os.path.join(_INBOX_AGENT_DIR, "agent", "config.py"),
+            "_api.ia.agent.config",
+        )
+        InboxOrchestrator = _inbox_orch_mod.InboxOrchestrator
+        InboxAgentConfig = _inbox_config_mod.InboxAgentConfig
+
+        config = InboxAgentConfig.from_env()
+        result = InboxOrchestrator(config).run()
+
+        _jobs[job_id]["status"] = "completed"
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        _jobs[job_id]["result"] = {
+            "emails_processed": result.total,
+            "actions_created": result.actions_created,
+            "manual_count": result.manual_count,
+            "skipped": result.skipped,
+            "errors": result.errors,
+        }
+        print(
+            f"[inbox_job] completed — {result.total} emails, "
+            f"{result.actions_created} actions, {result.manual_count} manual",
+            flush=True,
+        )
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["error"] = str(e)
+        _jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Inbox endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/inbox/run", status_code=202)
+def start_inbox_run():
+    """Scan the Gmail inbox, categorise emails, and create pending reply actions."""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        "job_id": job_id,
+        "status": "pending",
+        "type": "inbox_scan",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    threading.Thread(target=_run_inbox_job, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/inbox/needs-response")
+def list_needs_response():
+    """Return emails with category=manual that still need a human response."""
+    try:
+        emails = get_emails_needing_response()
+        return emails
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/inbox/emails/{email_id}/resolve", status_code=200)
+def resolve_email(email_id: str):
+    """Mark a manual email as resolved (ignored) so it leaves the Needs Response list."""
+    try:
+        update_inbox_email_status(email_id, "ignored")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"resolved": email_id}

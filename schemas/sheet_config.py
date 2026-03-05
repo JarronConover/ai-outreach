@@ -110,7 +110,8 @@ class ActionColumns:
         C  status          (pending | confirming | confirmed | canceled)
         D  created_at
         E  confirmed_at
-        F  email_type      (prospect_outreach | client_outreach | followup_email | demo_invite)
+        F  email_type      (prospect_outreach | client_outreach | followup_email | demo_invite |
+                            inbox_reply_interested | inbox_reply_not_interested | inbox_reply_demo_request)
         G  recipient_email
         H  recipient_name
         I  subject
@@ -121,6 +122,8 @@ class ActionColumns:
         N  start_time
         O  end_time
         P  demo_id
+        Q  source_email_id (inbox email id this action replies to)
+        R  body            (pre-generated HTML body for inbox reply actions)
     """
     ID              = 0
     KIND            = 1
@@ -138,8 +141,43 @@ class ActionColumns:
     START_TIME      = 13
     END_TIME        = 14
     DEMO_ID         = 15
+    SOURCE_EMAIL_ID = 16
+    BODY            = 17
 
-    TOTAL_COLUMNS   = 16
+    TOTAL_COLUMNS   = 18
+
+
+class EmailColumns:
+    """
+    Sheet: Emails
+    Columns (0-based):
+        A  id
+        B  message_id        (Gmail message ID — deduplication key)
+        C  from_email
+        D  from_name
+        E  people_id         (matched Person.id, or "" if unknown sender)
+        F  subject
+        G  body_snippet      (first 500 chars of plain-text body)
+        H  received_at       (ISO datetime)
+        I  category          (interested | not_interested | manual | demo_request | other)
+        J  status            (new | pending_response | responded | ignored)
+        K  response_action_id (linked Actions.id, written after creating an action)
+        L  note              (LLM-generated summary of email intent/key points)
+    """
+    ID                 = 0
+    MESSAGE_ID         = 1
+    FROM_EMAIL         = 2
+    FROM_NAME          = 3
+    PEOPLE_ID          = 4
+    SUBJECT            = 5
+    BODY_SNIPPET       = 6
+    RECEIVED_AT        = 7
+    CATEGORY           = 8
+    STATUS             = 9
+    RESPONSE_ACTION_ID = 10
+    NOTE               = 11
+
+    TOTAL_COLUMNS = 12
 
 
 class SheetNames:

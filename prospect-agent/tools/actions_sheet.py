@@ -38,6 +38,7 @@ _HEADER = [
     "id", "kind", "status", "created_at", "confirmed_at",
     "email_type", "recipient_email", "recipient_name", "subject", "people_id",
     "event_type", "event_title", "attendees", "start_time", "end_time", "demo_id",
+    "source_email_id", "body",
 ]
 
 
@@ -94,6 +95,8 @@ def _row_to_dict(row: list) -> dict:
         "start_time": _c(13) or None,
         "end_time": _c(14) or None,
         "demo_id": _c(15) or None,
+        "source_email_id": _c(16) or None,
+        "body": _c(17) or None,
     }
 
 
@@ -117,6 +120,8 @@ def _dict_to_row(action: dict) -> list:
         action.get("start_time", "") or "",
         action.get("end_time", "") or "",
         action.get("demo_id", "") or "",
+        action.get("source_email_id", "") or "",
+        action.get("body", "") or "",
     ]
 
 

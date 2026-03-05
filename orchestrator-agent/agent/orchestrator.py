@@ -10,6 +10,7 @@ _ORCHESTRATOR_AGENT_DIR = os.path.dirname(_THIS_DIR)  # orchestrator-agent/
 _PROJECT_ROOT = os.path.dirname(_ORCHESTRATOR_AGENT_DIR)
 _PROSPECT_AGENT_DIR = os.path.join(_PROJECT_ROOT, "prospect-agent")
 _OUTREACH_AGENT_DIR = os.path.join(_PROJECT_ROOT, "outreach-agent")
+_INBOX_AGENT_DIR = os.path.join(_PROJECT_ROOT, "inbox-agent")
 
 # Module keys that belong exclusively to the outreach-agent; saved/restored around dynamic loads
 _OA_MODULE_KEYS = [
@@ -202,6 +203,27 @@ class OrchestratorAgent:
 
     def execute_confirmed_actions(self, actions: list) -> None:
         """Execute a list of confirmed action dicts via the outreach-agent tools."""
+        _INBOX_REPLY_TYPES = {
+            "inbox_reply_interested",
+            "inbox_reply_not_interested",
+            "inbox_reply_demo_request",
+        }
+
+        # Separate inbox reply actions — handled directly, not via outreach tools.
+        inbox_reply_actions = [
+            a for a in actions
+            if a.get("kind") == "email" and a.get("email_type") in _INBOX_REPLY_TYPES
+        ]
+        outreach_actions = [a for a in actions if a not in inbox_reply_actions]
+
+        # --- Execute inbox replies ---
+        if inbox_reply_actions:
+            self._execute_inbox_replies(inbox_reply_actions)
+
+        # --- Execute standard outreach actions ---
+        if not outreach_actions:
+            return
+
         def _execute(orch):
             crm = orch.api.load_crm_context(orch.config.spreadsheet_id)
 
@@ -210,7 +232,7 @@ class OrchestratorAgent:
             followup_ids: set = set()
             calendar_demo_ids: set = set()
 
-            for action in actions:
+            for action in outreach_actions:
                 if action["kind"] == "email":
                     pid = action.get("people_id")
                     if not pid:
@@ -246,6 +268,80 @@ class OrchestratorAgent:
                 orch.schedule_demo_tool.execute(_filter(set(), calendar_demo_ids))
 
         self._call_outreach(_execute)
+
+    def _execute_inbox_replies(self, actions: list) -> None:
+        """
+        Send inbox reply emails, refining each draft body with the stored note
+        before sending (uses Gemini via email_categorizer.refine_reply).
+        """
+        import re as _re
+
+        # Load emails_sheet and refine_reply from inbox-agent by absolute path
+        _ia_emails_mod = _load_module_from_path(
+            "_ia_emails_sheet",
+            os.path.join(_INBOX_AGENT_DIR, "tools", "emails_sheet.py"),
+        )
+        get_email_by_id = _ia_emails_mod.get_email_by_id
+
+        _ia_cat_mod = _load_module_from_path(
+            "_ia_email_categorizer",
+            os.path.join(_INBOX_AGENT_DIR, "tools", "email_categorizer.py"),
+        )
+        refine_reply = _ia_cat_mod.refine_reply
+
+        sender_name = os.getenv("SENDER_NAME", "")
+        our_company = os.getenv("COMPANY_NAME", "Fellowship")
+
+        # Refine bodies using stored notes before entering the outreach context
+        refined_actions = []
+        for action in actions:
+            body = action.get("body", "")
+            source_email_id = action.get("source_email_id", "")
+            note = ""
+            if source_email_id:
+                try:
+                    email_record = get_email_by_id(source_email_id)
+                    if email_record:
+                        note = email_record.get("note", "") or ""
+                except Exception as exc:
+                    print(f"[inbox_reply] could not load note for action {action.get('id')}: {exc}")
+
+            if note and body:
+                try:
+                    body = refine_reply(
+                        draft_body=body,
+                        note=note,
+                        recipient_name=action.get("recipient_name", ""),
+                        sender_name=sender_name,
+                        our_company=our_company,
+                    )
+                    print(f"[inbox_reply] refined reply for {action.get('recipient_email')} using note")
+                except Exception as exc:
+                    print(f"[inbox_reply] refine failed for action {action.get('id')}: {exc}")
+
+            refined_actions.append({**action, "body": body})
+
+        def _send_replies(orch):
+            sender = f"{orch.config.sender_name} <{orch.config.sender_email}>"
+            for action in refined_actions:
+                to = action.get("recipient_email", "")
+                subject = action.get("subject", "")
+                body = action.get("body", "")
+                if not to or not body:
+                    print(f"[inbox_reply] skipping action {action.get('id')} — missing to/body")
+                    continue
+                plain = body.replace("<br>", "\n").replace("</p>", "\n")
+                plain = _re.sub(r"<[^>]+>", "", plain).strip()
+                orch.api.send_email(
+                    sender=sender,
+                    to=to,
+                    subject=subject,
+                    html_body=body,
+                    plain_body=plain,
+                )
+                print(f"[inbox_reply] sent reply to {to} | subject={subject!r}")
+
+        self._call_outreach(_send_replies)
 
     def _call_outreach(self, fn):
         """

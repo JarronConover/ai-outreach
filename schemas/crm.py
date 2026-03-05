@@ -312,7 +312,13 @@ class Action(BaseModel):
             start_time=_c(AC.START_TIME) or None,
             end_time=_c(AC.END_TIME) or None,
             demo_id=_c(AC.DEMO_ID) or None,
+            source_email_id=_c(AC.SOURCE_EMAIL_ID) or None,
+            body=_c(AC.BODY) or None,
         )
+
+    # Inbox reply fields
+    source_email_id: Optional[str] = None  # links to InboxEmail.id
+    body: Optional[str] = None             # pre-generated HTML body for inbox replies
 
     def to_sheet_row(self) -> list:
         """Convert to a flat list matching ActionColumns order."""
@@ -333,6 +339,8 @@ class Action(BaseModel):
             self.start_time or "",
             self.end_time or "",
             self.demo_id or "",
+            self.source_email_id or "",
+            self.body or "",
         ]
 
     def to_dict(self) -> dict:
@@ -354,22 +362,96 @@ class Action(BaseModel):
             "start_time": self.start_time,
             "end_time": self.end_time,
             "demo_id": self.demo_id,
+            "source_email_id": self.source_email_id,
+            "body": self.body,
         }
 
 
 # ---------------------------------------------------------------------------
-# Emails (placeholder)
+# Inbox email enums
 # ---------------------------------------------------------------------------
 
 
-class Email(BaseModel):
-    """Placeholder model for the Emails sheet.  Columns TBD."""
+class EmailCategory(str):
+    """Known category values for InboxEmail.category."""
+    INTERESTED     = "interested"
+    NOT_INTERESTED = "not_interested"
+    MANUAL         = "manual"
+    DEMO_REQUEST   = "demo_request"
+    OTHER          = "other"
+
+
+class EmailStatus(str):
+    """Known status values for InboxEmail.status."""
+    NEW              = "new"
+    PENDING_RESPONSE = "pending_response"
+    RESPONDED        = "responded"
+    IGNORED          = "ignored"
+
+
+# ---------------------------------------------------------------------------
+# Inbox emails
+# ---------------------------------------------------------------------------
+
+
+class InboxEmail(BaseModel):
+    """
+    One row from the Emails sheet.
+
+    Populated by the inbox-agent after reading Gmail.  Each row represents
+    one inbound email that has been categorised and (if applicable) linked
+    to a pending Action in the Actions sheet.
+    """
     row_index: int
-    raw_data: dict = {}
+
+    id: str
+    message_id: str                     # Gmail message ID (dedup key)
+    from_email: str
+    from_name: Optional[str] = None
+    people_id: Optional[str] = None     # matched Person.id, or None for unknown senders
+    subject: str = ""
+    body_snippet: str = ""              # first ~500 chars of plain-text body
+    received_at: Optional[datetime] = None
+    category: str = EmailCategory.OTHER
+    status: str = EmailStatus.NEW
+    response_action_id: Optional[str] = None  # set after creating a pending Action
+    note: Optional[str] = None          # LLM-generated summary of email intent/key points
 
     @classmethod
-    def from_sheet_row(cls, row: list, row_index: int) -> "Email":
-        return cls(row_index=row_index, raw_data={str(i): v for i, v in enumerate(row)})
+    def from_sheet_row(cls, row: list, row_index: int) -> "InboxEmail":
+        from schemas.sheet_config import EmailColumns as EC
+        return cls(
+            row_index=row_index,
+            id=_cell(row, EC.ID),
+            message_id=_cell(row, EC.MESSAGE_ID),
+            from_email=_cell(row, EC.FROM_EMAIL),
+            from_name=_cell(row, EC.FROM_NAME) or None,
+            people_id=_cell(row, EC.PEOPLE_ID) or None,
+            subject=_cell(row, EC.SUBJECT),
+            body_snippet=_cell(row, EC.BODY_SNIPPET),
+            received_at=_parse_dt(_cell(row, EC.RECEIVED_AT)),
+            category=_cell(row, EC.CATEGORY) or EmailCategory.OTHER,
+            status=_cell(row, EC.STATUS) or EmailStatus.NEW,
+            response_action_id=_cell(row, EC.RESPONSE_ACTION_ID) or None,
+            note=_cell(row, EC.NOTE) or None,
+        )
+
+    def to_sheet_row(self) -> list:
+        """Convert to a flat list matching EmailColumns order."""
+        return [
+            self.id,
+            self.message_id,
+            self.from_email,
+            self.from_name or "",
+            self.people_id or "",
+            self.subject,
+            self.body_snippet,
+            self.received_at.isoformat() if self.received_at else "",
+            self.category,
+            self.status,
+            self.response_action_id or "",
+            self.note or "",
+        ]
 
 
 # ---------------------------------------------------------------------------

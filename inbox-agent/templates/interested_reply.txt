@@ -1,0 +1,13 @@
+Hi {recipient_name},
+
+Thanks so much for getting back to me — really glad to hear you're interested!
+
+I'd love to set up a quick 30-minute call so I can walk you through what we're building at {our_company} and see if it's a good fit for your team.
+
+Would any of these times work for you this week or next? Happy to work around your schedule.
+
+Looking forward to connecting!
+
+Best,
+{sender_name}
+{our_company}

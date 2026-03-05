@@ -11,6 +11,7 @@ interface PendingAction {
   recipient_email?: string;
   recipient_name?: string;
   subject?: string;
+  body?: string;
   event_type?: string;
   event_title?: string;
   attendees?: string[];
@@ -24,6 +25,9 @@ const EMAIL_TYPE_LABELS: Record<string, string> = {
   client_outreach: "Client Check-in",
   followup_email: "Follow-up",
   demo_invite: "Demo Invite",
+  inbox_reply_interested: "Reply — Interested",
+  inbox_reply_not_interested: "Reply — Not Interested",
+  inbox_reply_demo_request: "Reply — Demo Request",
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -299,6 +303,11 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
                         </p>
                         <p className="text-[11px] text-[#6b7280] truncate">{action.recipient_email}</p>
                         <p className="text-[11px] text-[#9ca3af] truncate italic mt-0.5">{action.subject}</p>
+                        {action.body && (
+                          <p className="text-[10px] text-[#9ca3af] truncate mt-0.5 border-t border-[#f3f4f6] pt-1">
+                            {action.body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120)}
+                          </p>
+                        )}
                       </>
                     ) : (
                       <>

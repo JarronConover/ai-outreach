@@ -1,0 +1,11 @@
+Hi {recipient_name},
+
+Completely understood — thanks for letting me know, and I appreciate you taking the time to respond.
+
+I'll make sure you're removed from our outreach list. If anything ever changes or you'd like to reconnect down the road, feel free to reach out anytime.
+
+Wishing you and the team all the best!
+
+Best,
+{sender_name}
+{our_company}
