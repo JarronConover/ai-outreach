@@ -28,7 +28,7 @@ OTHER          = "other"
 
 _VALID_CATEGORIES = {INTERESTED, NOT_INTERESTED, DEMO_REQUEST, MANUAL, OTHER}
 
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+_TEMPLATES_DIR = Path(__file__).parent.parent.parent / "business" / "templates"
 
 _TEMPLATE_MAP = {
     INTERESTED:     _TEMPLATES_DIR / "interested_reply.txt",

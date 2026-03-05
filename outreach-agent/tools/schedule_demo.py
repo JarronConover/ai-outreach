@@ -24,12 +24,15 @@ excluded from future runs.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from agent.exceptions import DemoSchedulingError, GmailAPIError
 from agent.results import CalendarEventResult, EmailResult
 from schemas.crm import CRMContext, DemoStatus
 from schemas.sheet_config import DemoColumns, PeopleColumns, SheetNames
 from tools.tool import BaseTool
+
+_TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "demo_invite.html"
 
 
 def _build_invite_email(
@@ -48,32 +51,16 @@ def _build_invite_email(
         if meet_link else ""
     )
     subject = f"{stage_label} Confirmed – {our_company} × {company_name}"
-    html_body = f"""
-<html>
-  <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-    <p>Hi {person_name},</p>
-
-    <p>
-      Your <strong>{stage_label}</strong> with <strong>{our_company}</strong>
-      is confirmed for <strong>{date_str}</strong>.
-    </p>
-
-    {meet_section}
-
-    <p>
-      We're looking forward to walking you through the platform and answering
-      any questions you have. A calendar invite has been sent to
-      <em>{person_email}</em> – please reach out if you need to reschedule.
-    </p>
-
-    <p>
-      Talk soon,<br/>
-      <strong>{sender_name}</strong><br/>
-      {our_company}
-    </p>
-  </body>
-</html>
-"""
+    html_body = _TEMPLATE.read_text(encoding="utf-8").format(
+        name=person_name,
+        email=person_email,
+        company_name=company_name,
+        sender_name=sender_name,
+        our_company=our_company,
+        date_str=date_str,
+        meet_section=meet_section,
+        stage_label=stage_label,
+    )
     return subject, html_body
 
 

@@ -194,8 +194,8 @@ app.add_middleware(
 # In-memory job store
 _jobs: dict[str, dict] = {}
 
-# Default ICP — loaded from api/icp_config.json, override via request body
-_ICP_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "icp_config.json")
+# Default ICP — loaded from business/icp_config.json, override via request body
+_ICP_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "business", "icp_config.json")
 
 
 def _load_default_icp() -> "ICPInput":

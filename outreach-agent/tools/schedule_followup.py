@@ -18,6 +18,7 @@ After a successful send the tool writes back to the People sheet:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from agent.exceptions import GmailAPIError, SheetUpdateError
 from agent.results import EmailResult
@@ -35,6 +36,8 @@ _FOLLOWUP_STAGES = {
     "pricing",
 }
 
+_TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "followup_email.html"
+
 
 def _build_followup_email(
     pwc: PersonWithCompany,
@@ -42,36 +45,12 @@ def _build_followup_email(
     company_name: str,
 ) -> tuple[str, str]:
     subject = f"Following up – {company_name}"
-    html_body = f"""
-<html>
-  <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-    <p>Hi {pwc.name},</p>
-
-    <p>
-      I wanted to follow up on my last message and see if you'd had a chance
-      to think things over. I know you're busy at <strong>{pwc.company_name}</strong>,
-      so I'll keep this short.
-    </p>
-
-    <p>
-      Is now still a good time to explore how we can help? If you have any
-      questions or want to set up a quick call, just reply and we'll make it
-      happen.
-    </p>
-
-    <p>
-      If the timing isn't right, no worries at all – just let me know and
-      I'll circle back later.
-    </p>
-
-    <p>
-      Thanks,<br/>
-      <strong>{sender_name}</strong><br/>
-      {company_name}
-    </p>
-  </body>
-</html>
-"""
+    html_body = _TEMPLATE.read_text(encoding="utf-8").format(
+        name=pwc.name,
+        sender_name=sender_name,
+        our_company=company_name,
+        company_name=pwc.company_name,
+    )
     return subject, html_body
 
 

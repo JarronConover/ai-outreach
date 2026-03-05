@@ -14,6 +14,7 @@ After a successful send the tool writes back to the People sheet:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from agent.exceptions import GmailAPIError, SheetUpdateError
 from agent.results import EmailResult
@@ -21,48 +22,23 @@ from schemas.crm import CRMContext, PersonWithCompany, Stage
 from schemas.sheet_config import PeopleColumns, SheetNames
 from tools.tool import BaseTool
 
+_TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "prospect_outreach.html"
+
 
 def _build_email(
     pwc: PersonWithCompany,
     sender_name: str,
     company_name: str,
 ) -> tuple[str, str]:
-    industry_line = (
-        f" in the {pwc.industry} space" if pwc.industry else ""
-    )
+    industry_line = f" in the {pwc.industry} space" if pwc.industry else ""
     subject = f"Quick intro from {company_name}"
-    html_body = f"""
-<html>
-  <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-    <p>Hi {pwc.name},</p>
-
-    <p>
-      My name is <strong>{sender_name}</strong> from
-      <strong>{company_name}</strong>. I came across
-      <strong>{pwc.company_name}</strong>{industry_line} and thought there
-      might be a great opportunity for us to connect.
-    </p>
-
-    <p>
-      We help teams like yours streamline their workflows using AI – and I'd
-      love to learn more about what you're working on and see if there's a fit.
-    </p>
-
-    <p>
-      Would you be open to a quick 15-minute introductory call this week?
-      Just reply to this email and we can find a time that works for you.
-    </p>
-
-    <p>No pressure at all – I appreciate your time either way!</p>
-
-    <p>
-      Best,<br/>
-      <strong>{sender_name}</strong><br/>
-      {company_name}
-    </p>
-  </body>
-</html>
-"""
+    html_body = _TEMPLATE.read_text(encoding="utf-8").format(
+        name=pwc.name,
+        sender_name=sender_name,
+        our_company=company_name,
+        company_name=pwc.company_name,
+        industry_line=industry_line,
+    )
     return subject, html_body
 
 

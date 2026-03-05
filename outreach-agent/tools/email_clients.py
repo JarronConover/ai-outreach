@@ -13,12 +13,15 @@ After a successful send the tool writes back to the People sheet:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from agent.exceptions import GmailAPIError, SheetUpdateError
 from agent.results import EmailResult
 from schemas.crm import CRMContext, PersonWithCompany, Stage
 from schemas.sheet_config import PeopleColumns, SheetNames
 from tools.tool import BaseTool
+
+_TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "client_outreach.html"
 
 
 def _build_email(
@@ -27,34 +30,12 @@ def _build_email(
     company_name: str,
 ) -> tuple[str, str]:
     subject = f"Checking in – {company_name}"
-    html_body = f"""
-<html>
-  <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-    <p>Hi {pwc.name},</p>
-
-    <p>
-      I hope things are going well at <strong>{pwc.company_name}</strong>!
-      I'm reaching out to check in and make sure you're getting everything
-      you need from us.
-    </p>
-
-    <p>
-      If you'd like to schedule a quick call to catch up or have any
-      questions at all, just reply and we'll find a time that works.
-    </p>
-
-    <p>
-      Looking forward to hearing from you!
-    </p>
-
-    <p>
-      Warm regards,<br/>
-      <strong>{sender_name}</strong><br/>
-      {company_name}
-    </p>
-  </body>
-</html>
-"""
+    html_body = _TEMPLATE.read_text(encoding="utf-8").format(
+        name=pwc.name,
+        sender_name=sender_name,
+        our_company=company_name,
+        company_name=pwc.company_name,
+    )
     return subject, html_body
 
 

@@ -1,0 +1,11 @@
+Hi {recipient_name},
+
+Awesome — I'd be happy to set up a demo for you!
+
+Let me know a few times that work on your end and I'll get something on the calendar right away. Alternatively, feel free to share your availability and I'll send over a calendar invite.
+
+Looking forward to showing you what {our_company} can do!
+
+Best,
+{sender_name}
+{our_company}
