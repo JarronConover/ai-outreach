@@ -2,18 +2,18 @@
 InboxOrchestrator — core logic for the inbox-agent.
 
 Run flow:
-1. Load People sheet → build email-address → Person lookup dict.
-2. Load already-processed Gmail message IDs from the Emails sheet (dedup).
+1. Load People from Supabase -> build email-address -> Person lookup dict.
+2. Load already-processed Gmail message IDs from Supabase emails table (dedup).
 3. Fetch unread Gmail messages.
 4. For each new message:
    a. Match sender to a Person record.
-   b. Unknown senders → category = "manual" (no LLM call, no action).
-   c. Known senders → categorise with Gemini.
-   d. Append a row to the Emails sheet.
+   b. Unknown senders -> category = "manual" (no LLM call, no action).
+   c. Known senders -> categorise with Gemini.
+   d. Insert a row into the Supabase emails table.
    e. For actionable categories (interested / not_interested / demo_request):
       - Generate a personalised reply body with Gemini + template.
-      - Write a pending Action to the Actions sheet.
-      - Update Emails row: status = pending_response, response_action_id = <action.id>.
+      - Write a pending Action to Supabase.
+      - Update emails row: status = pending_response, response_action_id = <action.id>.
    f. Mark the Gmail message as read.
 5. Return InboxRunResult.
 """
@@ -34,18 +34,13 @@ except ImportError:
 
 # ---------------------------------------------------------------------------
 # Locate project root. Add inbox-agent dir to sys.path so that
-# `agent.*` and `tools.*` imports resolve here, not in prospect-agent.
-# We load prospect-agent's actions_sheet via importlib by absolute path
-# to avoid shadowing inbox-agent/tools/.
+# `agent.*` and `tools.*` imports resolve here.
 # ---------------------------------------------------------------------------
-import importlib.util as _ilu
-
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _INBOX_AGENT_DIR = os.path.dirname(_THIS_DIR)
 _PROJECT_ROOT = os.path.dirname(_INBOX_AGENT_DIR)
-_PROSPECT_AGENT_DIR = os.path.join(_PROJECT_ROOT, "prospect-agent")
 
-# inbox-agent must be at the front so its tools/ is found before prospect-agent's
+# inbox-agent must be at the front so its tools/ is found first
 if _INBOX_AGENT_DIR not in sys.path:
     sys.path.insert(0, _INBOX_AGENT_DIR)
 if _PROJECT_ROOT not in sys.path:
@@ -61,47 +56,28 @@ from tools.emails_sheet import (
     update_email_status,
 )
 
-# Load write_actions from prospect-agent by absolute path (avoids tools/ namespace conflict)
-_pa_actions_spec = _ilu.spec_from_file_location(
-    "_inbox_pa_actions",
-    os.path.join(_PROSPECT_AGENT_DIR, "tools", "actions_sheet.py"),
-)
-_pa_actions_mod = _ilu.module_from_spec(_pa_actions_spec)
-_pa_actions_spec.loader.exec_module(_pa_actions_mod)
-write_actions = _pa_actions_mod.write_actions
+# Use Supabase-backed write_actions (via api.supabase_crud)
+from api.supabase_crud import write_actions  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# People sheet helper — minimal gspread read for email→id lookup
+# People lookup from Supabase
 # ---------------------------------------------------------------------------
 
 
-def _load_people_lookup() -> dict[str, dict]:
-    """Return a dict keyed by email address → {id, name, people_id}."""
-    import gspread
-    from google.oauth2.service_account import Credentials
-
-    _SCOPES = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-    sheet_id = os.environ["GOOGLE_SHEET_ID"]
-    creds = Credentials.from_service_account_file(creds_file, scopes=_SCOPES)
-    client = gspread.authorize(creds)
-    ws = client.open_by_key(sheet_id).worksheet("People")
-    rows = ws.get_all_values()
-
-    # PeopleColumns: ID=0, NAME=1, EMAIL=3
-    lookup: dict[str, dict] = {}
-    for row in rows[1:]:  # skip header
-        if len(row) < 4:
-            continue
-        pid = row[0].strip()
-        name = row[1].strip()
-        email = row[3].strip().lower()
-        if email:
-            lookup[email] = {"id": pid, "name": name, "email": email}
-    return lookup
+def _load_people_lookup() -> dict:
+    """Return a dict keyed by lowercase email address -> {id, name, email}."""
+    from api.db import get_db
+    db = get_db()
+    res = db.table("people").select("id, name, email").execute()
+    return {
+        row["email"].lower(): {
+            "id": row["id"],
+            "name": row["name"],
+            "email": row["email"].lower(),
+        }
+        for row in res.data
+        if row.get("email")
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -128,18 +104,18 @@ class InboxOrchestrator:
     def run(self) -> InboxRunResult:
         result = InboxRunResult(run_at=datetime.utcnow(), dry_run=self.config.dry_run)
 
-        # 1. Build People email lookup
+        # 1. Build People email lookup from Supabase
         try:
             people_lookup = _load_people_lookup()
         except Exception as exc:
-            result.errors.append(f"Failed to load People sheet: {exc}")
+            result.errors.append(f"Failed to load People from Supabase: {exc}")
             return result
 
-        # 2. Load already-processed message IDs
+        # 2. Load already-processed message IDs from Supabase
         try:
             seen_message_ids = get_existing_message_ids()
         except Exception as exc:
-            result.errors.append(f"Failed to load Emails sheet: {exc}")
+            result.errors.append(f"Failed to load existing message IDs: {exc}")
             return result
 
         # 3. Fetch unread messages
@@ -204,12 +180,12 @@ class InboxOrchestrator:
         body_snippet = msg["body_snippet"]
         received_at = msg["received_at"]
 
-        # Match sender to People sheet
-        person = people_lookup.get(from_email)
+        # Match sender to People table
+        person = people_lookup.get(from_email.lower() if from_email else "")
         people_id = person["id"] if person else None
         display_name = (from_name or (person["name"] if person else from_email))
 
-        # Categorise (unknown senders always → manual, no LLM call)
+        # Categorise (unknown senders always -> manual, no LLM call)
         note: Optional[str] = None
         if person is None:
             category = MANUAL
@@ -236,21 +212,21 @@ class InboxOrchestrator:
             except Exception as exc:
                 print(f"[inbox] note generation failed for {message_id}: {exc}")
 
-        # Build Emails sheet record
+        # Build email record
         email_record_id = str(uuid.uuid4())
         email_dict = {
             "id": email_record_id,
             "message_id": message_id,
             "from_email": from_email,
             "from_name": display_name,
-            "people_id": people_id or "",
+            "people_id": people_id,
             "subject": subject,
             "body_snippet": body_snippet,
-            "received_at": received_at.isoformat() if received_at else "",
+            "received_at": received_at.isoformat() if received_at else None,
             "category": category,
             "status": "new",
-            "response_action_id": "",
-            "note": note or "",
+            "response_action_id": None,
+            "note": note,
         }
 
         action_id: Optional[str] = None
@@ -270,7 +246,7 @@ class InboxOrchestrator:
                 email_dict["status"] = "pending_response"
                 email_dict["response_action_id"] = action_id
 
-        # Write to Emails sheet
+        # Write to Supabase
         if not self.config.dry_run:
             try:
                 append_email(email_dict)
@@ -284,7 +260,7 @@ class InboxOrchestrator:
                     subject=subject,
                     people_id=people_id,
                     category=category,
-                    error=f"Emails sheet write failed: {exc}",
+                    error=f"Supabase write failed: {exc}",
                 )
 
             # Mark Gmail message as read
@@ -343,11 +319,11 @@ class InboxOrchestrator:
             "recipient_email": recipient_email,
             "recipient_name": recipient_name,
             "subject": f"Re: {subject}",
-            "people_id": people_id or "",
+            "people_id": people_id,
             "status": "pending",
             "created_at": datetime.utcnow().isoformat(),
             "source_email_id": email_record_id,
-            "body": body_html or "",
+            "body": body_html,
         }
 
         if not self.config.dry_run:

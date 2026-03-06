@@ -1,14 +1,13 @@
 """
 Tool 2 – Email New Prospects
 
-Sends an introductory email to every Person in the People sheet whose stage
-is "prospect" and who has never been contacted (last_contact_date is null).
-These prospects were added to the sheet by the prospect-agent.
+Sends an introductory email to every Person in Supabase whose stage is
+"prospect" and who has never been contacted (last_contact_date is null).
 
-After a successful send the tool writes back to the People sheet:
-    stage             ← "contacted"
-    last_contact      ← "email"
-    last_contact_date ← today (YYYY-MM-DD)
+After a successful send the tool writes back to Supabase:
+    stage             <- "contacted"
+    last_contact      <- "email"
+    last_contact_date <- today (ISO datetime)
 """
 
 from __future__ import annotations
@@ -16,10 +15,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent.exceptions import GmailAPIError, SheetUpdateError
+from agent.exceptions import GmailAPIError
 from agent.results import EmailResult
 from schemas.crm import CRMContext, PersonWithCompany, Stage
-from schemas.sheet_config import PeopleColumns, SheetNames
 from tools.tool import BaseTool
 
 _TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "prospect_outreach.html"
@@ -46,14 +44,14 @@ class EmailProspectsTool(BaseTool):
     """
     Emails new prospects who have never been contacted.
 
-    Filtering criteria (People sheet):
+    Filtering criteria:
         stage = "prospect"
         AND last_contact_date is null
 
-    Sheet updates on success (People tab):
-        stage             ← "contacted"
-        last_contact      ← "email"
-        last_contact_date ← today
+    Supabase updates on success:
+        stage             <- "contacted"
+        last_contact      <- "email"
+        last_contact_date <- today
     """
 
     tool_name = "email_prospects"
@@ -102,19 +100,12 @@ class EmailProspectsTool(BaseTool):
                     subject=subject,
                     html_body=html_body,
                 )
-                # Advance stage and record contact in the People sheet
-                for col, val in [
-                    (PeopleColumns.STAGE, Stage.CONTACTED),
-                    (PeopleColumns.LAST_CONTACT, today_str),
-                    (PeopleColumns.LAST_CONTACT_DATE, today_str),
-                ]:
-                    self.api.update_cell(
-                        self.config.spreadsheet_id,
-                        SheetNames.PEOPLE,
-                        pwc.row_index,
-                        col,
-                        val,
-                    )
+                # Advance stage and record contact in Supabase
+                self.api.update_person(pwc.person.id, {
+                    "stage": Stage.CONTACTED,
+                    "last_contact": "email",
+                    "last_contact_date": today_str,
+                })
 
                 self.tracer.log_email_sent(
                     recipient_email=pwc.email,
@@ -133,7 +124,7 @@ class EmailProspectsTool(BaseTool):
                     success=True,
                 ))
 
-            except (GmailAPIError, SheetUpdateError) as exc:
+            except Exception as exc:
                 self.tracer.log_error(exc, {"contact": pwc.email})
                 results.append(EmailResult(
                     recipient_email=pwc.email,

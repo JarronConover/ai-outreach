@@ -1,13 +1,13 @@
 """
 Tool 1 – Email Current Clients
 
-Sends a personalised check-in email to every Person in the People sheet
-whose stage is "client" and who has not been contacted within the configured
+Sends a personalised check-in email to every Person in Supabase whose
+stage is "client" and who has not been contacted within the configured
 client_checkin_days window.
 
-After a successful send the tool writes back to the People sheet:
-    last_contact      ← "email"
-    last_contact_date ← today (YYYY-MM-DD)
+After a successful send the tool writes back to Supabase:
+    last_contact      <- "email"
+    last_contact_date <- today (ISO datetime)
 """
 
 from __future__ import annotations
@@ -15,10 +15,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from agent.exceptions import GmailAPIError, SheetUpdateError
+from agent.exceptions import GmailAPIError
 from agent.results import EmailResult
 from schemas.crm import CRMContext, PersonWithCompany, Stage
-from schemas.sheet_config import PeopleColumns, SheetNames
 from tools.tool import BaseTool
 
 _TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "client_outreach.html"
@@ -43,13 +42,13 @@ class EmailClientsTool(BaseTool):
     """
     Emails existing clients who haven't been contacted recently.
 
-    Filtering criteria (People sheet):
+    Filtering criteria:
         stage = "client"
-        AND (last_contact_date is null  OR  last_contact_date < today − client_checkin_days)
+        AND (last_contact_date is null  OR  last_contact_date < today - client_checkin_days)
 
-    Sheet updates on success (People tab):
-        last_contact      ← "email"
-        last_contact_date ← today
+    Supabase updates on success:
+        last_contact      <- "email"
+        last_contact_date <- today
     """
 
     tool_name = "email_clients"
@@ -102,18 +101,11 @@ class EmailClientsTool(BaseTool):
                     subject=subject,
                     html_body=html_body,
                 )
-                # Update People sheet
-                for col, val in [
-                    (PeopleColumns.LAST_CONTACT, today_str),
-                    (PeopleColumns.LAST_CONTACT_DATE, today_str),
-                ]:
-                    self.api.update_cell(
-                        self.config.spreadsheet_id,
-                        SheetNames.PEOPLE,
-                        pwc.row_index,
-                        col,
-                        val,
-                    )
+                # Write back to Supabase
+                self.api.update_person(pwc.person.id, {
+                    "last_contact": "email",
+                    "last_contact_date": today_str,
+                })
 
                 self.tracer.log_email_sent(
                     recipient_email=pwc.email,
@@ -132,7 +124,7 @@ class EmailClientsTool(BaseTool):
                     success=True,
                 ))
 
-            except (GmailAPIError, SheetUpdateError) as exc:
+            except Exception as exc:
                 self.tracer.log_error(exc, {"contact": pwc.email})
                 results.append(EmailResult(
                     recipient_email=pwc.email,

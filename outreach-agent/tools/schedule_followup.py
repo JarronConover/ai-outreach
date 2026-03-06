@@ -5,14 +5,9 @@ Sends a follow-up email to People who are mid-pipeline (stage is "contacted",
 "demo_completed", or "pricing") and whose last_contact_date is older than the
 configured followup_days threshold.
 
-This tool sends email-only follow-ups (no calendar event) to re-engage contacts
-who have gone quiet.  If a formal meeting needs scheduling, add a row to the
-Demos sheet with status="scheduled" and a date — ScheduleDemoTool will handle
-the calendar event.
-
-After a successful send the tool writes back to the People sheet:
-    last_contact      ← "email"
-    last_contact_date ← today (YYYY-MM-DD)
+After a successful send the tool writes back to Supabase:
+    last_contact      <- "email"
+    last_contact_date <- today (ISO datetime)
 """
 
 from __future__ import annotations
@@ -20,10 +15,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from agent.exceptions import GmailAPIError, SheetUpdateError
+from agent.exceptions import GmailAPIError
 from agent.results import EmailResult
 from schemas.crm import CRMContext, PersonWithCompany, Stage
-from schemas.sheet_config import PeopleColumns, SheetNames
 from tools.tool import BaseTool
 
 # Stages that warrant a follow-up nudge
@@ -58,13 +52,13 @@ class ScheduleFollowUpTool(BaseTool):
     """
     Sends follow-up emails to mid-pipeline contacts who have gone quiet.
 
-    Filtering criteria (People sheet):
+    Filtering criteria:
         stage in ("contacted", "demo_completed", "pricing")
-        AND (last_contact_date is null  OR  last_contact_date < today − followup_days)
+        AND (last_contact_date is null  OR  last_contact_date < today - followup_days)
 
-    Sheet updates on success (People tab):
-        last_contact      ← "email"
-        last_contact_date ← today
+    Supabase updates on success:
+        last_contact      <- "email"
+        last_contact_date <- today
     """
 
     tool_name = "schedule_followup"
@@ -117,18 +111,11 @@ class ScheduleFollowUpTool(BaseTool):
                     subject=subject,
                     html_body=html_body,
                 )
-                # Update People sheet
-                for col, val in [
-                    (PeopleColumns.LAST_CONTACT, today_str),
-                    (PeopleColumns.LAST_CONTACT_DATE, today_str),
-                ]:
-                    self.api.update_cell(
-                        self.config.spreadsheet_id,
-                        SheetNames.PEOPLE,
-                        pwc.row_index,
-                        col,
-                        val,
-                    )
+                # Write back to Supabase
+                self.api.update_person(pwc.person.id, {
+                    "last_contact": "email",
+                    "last_contact_date": today_str,
+                })
 
                 self.tracer.log_email_sent(
                     recipient_email=pwc.email,
@@ -147,7 +134,7 @@ class ScheduleFollowUpTool(BaseTool):
                     success=True,
                 ))
 
-            except (GmailAPIError, SheetUpdateError) as exc:
+            except Exception as exc:
                 self.tracer.log_error(exc, {"contact": pwc.email})
                 results.append(EmailResult(
                     recipient_email=pwc.email,

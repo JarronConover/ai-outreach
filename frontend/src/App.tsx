@@ -6,6 +6,7 @@ import { NeedsResponseWidget } from "@/components/NeedsResponseWidget";
 import { PeopleTable } from "@/components/PeopleTable";
 import { DemosWidget } from "@/components/DemosWidget";
 import { KpiCards } from "@/components/KpiCards";
+import { CsvImportWidget } from "@/components/CsvImportWidget";
 
 interface Stats {
   total_prospects: number;
@@ -54,6 +55,7 @@ export default function App() {
         <div className="flex gap-5 items-start">
           <aside className="w-72 shrink-0 flex flex-col gap-5">
             <RunPanel onJobComplete={handleJobComplete} />
+            <CsvImportWidget />
           </aside>
           <div className="flex-1 min-w-0 flex flex-col gap-5">
             <PeopleTable people={dashboard?.people ?? []} loading={loading} onRefresh={fetchDashboard} />

@@ -225,7 +225,7 @@ class OrchestratorAgent:
             return
 
         def _execute(orch):
-            crm = orch.api.load_crm_context(orch.config.spreadsheet_id)
+            crm = orch.api.load_crm_context()
 
             prospect_ids: set = set()
             client_ids: set = set()
@@ -390,14 +390,13 @@ class OrchestratorAgent:
             from agent.orchestrator import OutreachOrchestrator  # noqa: E402
 
             missing = [
-                v for v in ("GOOGLE_SHEET_ID", "SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
+                v for v in ("SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
                 if not os.getenv(v)
             ]
             if missing:
                 raise RuntimeError(f"Missing env vars: {', '.join(missing)}")
 
             config = OutreachAgentConfig(
-                spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
                 credentials_file=os.getenv(
                     "GOOGLE_CREDENTIALS_FILE",
                     os.path.join(_OUTREACH_AGENT_DIR, "credentials.json"),

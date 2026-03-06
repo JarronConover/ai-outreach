@@ -1,13 +1,12 @@
 """
 Outreach Agent Orchestrator
 
-Reads People, Companies, and Demos from the "Fellowship CRM" Google Sheet,
-builds a CRMContext, then runs all four outreach tools in sequence:
+Reads People, Companies, and Demos from Supabase, builds a CRMContext,
+then runs all four outreach tools in sequence:
 
   1. EmailClientsTool     – check-in emails to existing clients
   2. EmailProspectsTool   – intro emails to uncontacted new prospects
-  3. ScheduleDemoTool     – calendar events + confirmation emails for scheduled demos;
-                            also writes demo.id to People.next_demo_id
+  3. ScheduleDemoTool     – calendar events + confirmation emails for scheduled demos
   4. ScheduleFollowUpTool – follow-up emails for mid-pipeline contacts gone quiet
 """
 
@@ -16,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from agent.config import OutreachAgentConfig
-from agent.exceptions import GoogleSheetsAPIError, OutreachAgentError
+from agent.exceptions import OutreachAgentError
 from agent.results import OutreachRunResult
 from agent.tracer import OutreachTracer
 from tools.email_clients import EmailClientsTool
@@ -69,30 +68,29 @@ class OutreachOrchestrator:
         )
 
         self.tracer.log_run_start({
-            "spreadsheet_id": self.config.spreadsheet_id,
             "dry_run": self.config.dry_run,
             "sender_email": self.config.sender_email,
         })
 
         # ------------------------------------------------------------------
-        # Load CRM data (People + Companies + Demos) in one pass
+        # Load CRM data (People + Companies + Demos) from Supabase
         # ------------------------------------------------------------------
         try:
-            crm = self.api.load_crm_context(self.config.spreadsheet_id)
-        except GoogleSheetsAPIError as exc:
+            crm = self.api.load_crm_context()
+        except Exception as exc:
             self.tracer.log_error(exc)
             result.errors.append(str(exc))
             self.tracer.log_run_end(result.to_summary_dict())
             return result
 
-        self.tracer.log_sheet_read(
-            spreadsheet_id=self.config.spreadsheet_id,
-            sheet_name="People + Companies + Demos",
+        self.tracer.log_db_read(
+            source="supabase",
+            table_name="people + companies + demos",
             row_count=len(crm.people),
         )
 
         if not crm.people:
-            self.tracer.log_run_end({"warning": "No people found in People sheet."})
+            self.tracer.log_run_end({"warning": "No people found in Supabase."})
             return result
 
         # ------------------------------------------------------------------
@@ -155,20 +153,15 @@ class OutreachOrchestrator:
         """
         Run all tools in dry-run mode and return the planned actions.
         The orchestrator's real dry_run setting is restored afterwards.
-
-        IMPORTANT: _init_tools() must be called after updating self.config because
-        each tool captures a snapshot of self.config at construction time.  Without
-        reinitialising, the tools keep their original dry_run=False config and would
-        send real emails / create real events during the preview phase.
         """
         original = self.config.dry_run
         self.config = self.config.model_copy(update={"dry_run": True})
-        self._init_tools()  # give every tool the dry_run=True config
+        self._init_tools()
         try:
             return self.run()
         finally:
             self.config = self.config.model_copy(update={"dry_run": original})
-            self._init_tools()  # restore tools to the original config
+            self._init_tools()
 
     def print_plan(self, result: OutreachRunResult) -> None:
         """Print a human-readable preview of every email and calendar event that would be sent."""

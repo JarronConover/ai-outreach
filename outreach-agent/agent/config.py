@@ -10,9 +10,7 @@ from pydantic import BaseModel
 class OutreachAgentConfig(BaseModel):
     """Top-level configuration passed to the orchestrator at startup."""
 
-    spreadsheet_id: str
-
-    # Google OAuth credentials paths
+    # Google OAuth credentials paths (for Gmail + Calendar only)
     credentials_file: str = "credentials.json"
     token_file: str = "token.pickle"
 

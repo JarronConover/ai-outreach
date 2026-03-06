@@ -2,9 +2,9 @@
 Base tool class and shared Google API helpers.
 
 All outreach tools inherit from BaseTool and share a single authenticated
-GoogleAPIClient instance.  The GoogleAPIClient also loads all three active
-CRM sheets (People, Companies, Demos) and assembles a CRMContext so every
-tool sees the full relational picture without additional sheet reads.
+GoogleAPIClient instance. The client loads CRM data from Supabase (replacing
+the previous Google Sheets reads) and provides update helpers that write back
+to Supabase after emails are sent or calendar events are created.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import os
 import pickle
+import sys
 from abc import ABC, abstractmethod
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -29,22 +30,92 @@ from agent.exceptions import (
     AuthenticationError,
     GmailAPIError,
     GoogleCalendarAPIError,
-    GoogleSheetsAPIError,
 )
 from schemas.crm import CRMContext, Company, Demo, Person
-from schemas.sheet_config import (
-    CompanyColumns,
-    DemoColumns,
-    PeopleColumns,
-    SheetNames,
-)
 
-# Google OAuth scopes required by this agent
+# Ensure project root is in sys.path so `api.*` resolves correctly.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from api.db import get_db  # noqa: E402
+
+# Google OAuth scopes required by this agent (gmail + calendar only)
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/calendar",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Helpers: build CRM model objects from Supabase row dicts
+# ---------------------------------------------------------------------------
+
+
+def _parse_dt_from_db(val) -> Optional[datetime]:
+    """Parse a datetime value returned by Supabase (may be str or datetime)."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val
+    if isinstance(val, str):
+        val = val.strip()
+        if not val:
+            return None
+        # Import the shared parser from schemas
+        from schemas.crm import _parse_dt
+        return _parse_dt(val)
+    return None
+
+
+def _person_from_dict(row: dict) -> Person:
+    return Person(
+        row_index=0,
+        id=row["id"],
+        name=row.get("name", ""),
+        company_id=row.get("company_id") or "",
+        email=row.get("email", ""),
+        phone=row.get("phone") or None,
+        linkedin=row.get("linkedin") or None,
+        title=row.get("title") or None,
+        stage=row.get("stage", "prospect"),
+        last_demo_id=None,
+        next_demo_id=None,
+        last_response=row.get("last_response") or None,
+        last_contact=row.get("last_contact") or None,
+        last_response_date=_parse_dt_from_db(row.get("last_response_date")),
+        last_contact_date=_parse_dt_from_db(row.get("last_contact_date")),
+    )
+
+
+def _company_from_dict(row: dict) -> Company:
+    return Company(
+        row_index=0,
+        id=row["id"],
+        name=row.get("name", ""),
+        address=row.get("address") or None,
+        city=row.get("city") or None,
+        state=row.get("state") or None,
+        zip=row.get("zip") or None,
+        phone=row.get("phone") or None,
+        website=row.get("website") or None,
+        industry=row.get("industry") or None,
+        employee_count=row.get("employee_count") or None,
+    )
+
+
+def _demo_from_dict(row: dict) -> Demo:
+    return Demo(
+        row_index=0,
+        id=row["id"],
+        people_id=row["people_id"],
+        company_id=row.get("company_id") or "",
+        type=row.get("type", "discovery"),
+        date=_parse_dt_from_db(row.get("date")),
+        status=row.get("status", "scheduled"),
+        count=row.get("count"),
+        event_id=row.get("event_id") or None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +126,7 @@ SCOPES = [
 class GoogleAPIClient:
     """
     Handles Google OAuth authentication and exposes lazy-loaded service
-    clients for Gmail, Sheets, and Calendar.
+    clients for Gmail and Calendar. CRM data is loaded from Supabase.
     """
 
     def __init__(self, credentials_file: str, token_file: str) -> None:
@@ -63,7 +134,6 @@ class GoogleAPIClient:
         self._token_file = token_file
         self._creds: Optional[Credentials] = None
         self._gmail = None
-        self._sheets = None
         self._calendar = None
 
     # ------------------------------------------------------------------
@@ -118,12 +188,6 @@ class GoogleAPIClient:
         return self._gmail
 
     @property
-    def sheets(self):
-        if self._sheets is None:
-            self._sheets = build("sheets", "v4", credentials=self.creds)
-        return self._sheets
-
-    @property
     def calendar(self):
         if self._calendar is None:
             self._calendar = build("calendar", "v3", credentials=self.creds)
@@ -141,7 +205,7 @@ class GoogleAPIClient:
         html_body: str,
         plain_body: Optional[str] = None,
     ) -> dict:
-        """Send an email via Gmail API.  Returns the raw API response."""
+        """Send an email via Gmail API. Returns the raw API response."""
         message = MIMEMultipart("alternative")
         message["Subject"] = subject
         message["From"] = sender
@@ -163,48 +227,6 @@ class GoogleAPIClient:
             raise GmailAPIError(f"Failed to send email to {to}: {exc}") from exc
 
     # ------------------------------------------------------------------
-    # Google Sheets helpers
-    # ------------------------------------------------------------------
-
-    def read_sheet(self, spreadsheet_id: str, sheet_name: str) -> list[list]:
-        """Return all rows (including header row) from a sheet tab."""
-        try:
-            result = (
-                self.sheets.spreadsheets()
-                .values()
-                .get(spreadsheetId=spreadsheet_id, range=sheet_name)
-                .execute()
-            )
-            return result.get("values", [])
-        except HttpError as exc:
-            raise GoogleSheetsAPIError(
-                f"Failed to read sheet '{sheet_name}': {exc}"
-            ) from exc
-
-    def update_cell(
-        self,
-        spreadsheet_id: str,
-        sheet_name: str,
-        row_index: int,
-        col_index: int,
-        value: str,
-    ) -> None:
-        """Update a single cell.  row_index is 1-based (matching the sheet row number)."""
-        col_letter = _col_index_to_letter(col_index)
-        range_notation = f"{sheet_name}!{col_letter}{row_index}"
-        try:
-            self.sheets.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id,
-                range=range_notation,
-                valueInputOption="USER_ENTERED",
-                body={"values": [[value]]},
-            ).execute()
-        except HttpError as exc:
-            raise GoogleSheetsAPIError(
-                f"Failed to update cell {range_notation}: {exc}"
-            ) from exc
-
-    # ------------------------------------------------------------------
     # Google Calendar helpers
     # ------------------------------------------------------------------
 
@@ -214,7 +236,7 @@ class GoogleAPIClient:
         description: str,
         start: datetime,
         end: datetime,
-        attendees: list[str],
+        attendees: list,
         timezone: str = "America/New_York",
         add_meet: bool = True,
     ) -> dict:
@@ -249,7 +271,7 @@ class GoogleAPIClient:
                     calendarId="primary",
                     body=event_body,
                     conferenceDataVersion=1 if add_meet else 0,
-                    sendUpdates="all",  # emails invites to attendees automatically
+                    sendUpdates="all",
                 )
                 .execute()
             )
@@ -259,23 +281,40 @@ class GoogleAPIClient:
             ) from exc
 
     # ------------------------------------------------------------------
-    # CRM data loading
+    # CRM data loading (from Supabase)
     # ------------------------------------------------------------------
 
-    def load_crm_context(self, spreadsheet_id: str) -> CRMContext:
-        """
-        Read People, Companies, and Demos sheets and return a CRMContext.
-        The header row (row 0) of each sheet is skipped.
-        """
-        people_rows = self.read_sheet(spreadsheet_id, SheetNames.PEOPLE)
-        company_rows = self.read_sheet(spreadsheet_id, SheetNames.COMPANIES)
-        demo_rows = self.read_sheet(spreadsheet_id, SheetNames.DEMOS)
+    def load_crm_context(self) -> CRMContext:
+        """Read People, Companies, and Demos from Supabase and return a CRMContext."""
+        db = get_db()
 
-        people = _parse_people(people_rows)
-        companies = {c.id: c for c in _parse_companies(company_rows)}
-        demos = _parse_demos(demo_rows)
+        people_rows = db.table("people").select("*").execute().data
+        company_rows = db.table("companies").select("*").execute().data
+        demo_rows = db.table("demos").select("*").execute().data
+
+        people = [_person_from_dict(r) for r in people_rows]
+        companies = {r["id"]: _company_from_dict(r) for r in company_rows}
+        demos = [_demo_from_dict(r) for r in demo_rows]
 
         return CRMContext(people=people, companies=companies, demos=demos)
+
+    # ------------------------------------------------------------------
+    # Supabase write-back helpers (called by tools after successful sends)
+    # ------------------------------------------------------------------
+
+    def update_person(self, person_id: str, payload: dict) -> None:
+        """Update a Person record in Supabase."""
+        try:
+            get_db().table("people").update(payload).eq("id", person_id).execute()
+        except Exception as exc:
+            print(f"[outreach] warning: failed to update person {person_id}: {exc}")
+
+    def update_demo(self, demo_id: str, payload: dict) -> None:
+        """Update a Demo record in Supabase."""
+        try:
+            get_db().table("demos").update(payload).eq("id", demo_id).execute()
+        except Exception as exc:
+            print(f"[outreach] warning: failed to update demo {demo_id}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -308,47 +347,6 @@ class BaseTool(ABC):
 
     def _sender_address(self) -> str:
         return f"{self.config.sender_name} <{self.config.sender_email}>"
-
-
-# ---------------------------------------------------------------------------
-# Sheet parsing helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_people(rows: list[list]) -> list[Person]:
-    people = []
-    for i, row in enumerate(rows[1:], start=2):  # skip header; 1-based index starts at 2
-        if len(row) <= PeopleColumns.EMAIL or not _s(row, PeopleColumns.EMAIL):
-            continue
-        try:
-            people.append(Person.from_sheet_row(row, row_index=i))
-        except Exception:
-            pass
-    return people
-
-
-def _parse_companies(rows: list[list]) -> list[Company]:
-    companies = []
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) <= CompanyColumns.NAME or not _s(row, CompanyColumns.NAME):
-            continue
-        try:
-            companies.append(Company.from_sheet_row(row, row_index=i))
-        except Exception:
-            pass
-    return companies
-
-
-def _parse_demos(rows: list[list]) -> list[Demo]:
-    demos = []
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) <= DemoColumns.PEOPLE_ID or not _s(row, DemoColumns.PEOPLE_ID):
-            continue
-        try:
-            demos.append(Demo.from_sheet_row(row, row_index=i))
-        except Exception:
-            pass
-    return demos
 
 
 # ---------------------------------------------------------------------------

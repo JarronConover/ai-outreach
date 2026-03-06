@@ -10,7 +10,8 @@ Run:
     python main.py --export-trace    # write trace.json after the run
 
 Required environment variables (see .env.example):
-    GOOGLE_SHEET_ID, SENDER_EMAIL, SENDER_NAME, COMPANY_NAME
+    SENDER_EMAIL, SENDER_NAME, COMPANY_NAME
+    SUPABASE_URL, SUPABASE_KEY
     GOOGLE_CREDENTIALS_FILE  (default: credentials.json)
     GOOGLE_TOKEN_FILE        (default: token.pickle)
 """
@@ -22,15 +23,12 @@ import os
 import sys
 
 # ── Path fix ──────────────────────────────────────────────────────────────
-# Must happen before any local package imports so that `from schemas.crm …`
-# resolves to ai-outreach/schemas/ (the global CRM schemas) rather than to
-# the agent-local schemas/ folder.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 # ─────────────────────────────────────────────────────────────────────────
 
-from dotenv import load_dotenv  # noqa: E402  (import after path fix)
+from dotenv import load_dotenv  # noqa: E402
 
 from agent.config import OutreachAgentConfig  # noqa: E402
 from agent.orchestrator import OutreachOrchestrator  # noqa: E402
@@ -40,7 +38,7 @@ def _load_config(dry_run: bool) -> OutreachAgentConfig:
     load_dotenv()
 
     missing = [
-        var for var in ("GOOGLE_SHEET_ID", "SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
+        var for var in ("SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
         if not os.getenv(var)
     ]
     if missing:
@@ -52,7 +50,6 @@ def _load_config(dry_run: bool) -> OutreachAgentConfig:
         sys.exit(1)
 
     return OutreachAgentConfig(
-        spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
         credentials_file=os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json"),
         token_file=os.getenv("GOOGLE_TOKEN_FILE", "token.pickle"),
         sender_email=os.environ["SENDER_EMAIL"],
@@ -71,9 +68,7 @@ def _load_config(dry_run: bool) -> OutreachAgentConfig:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Run the outreach agent against the Fellowship CRM Google Sheet."
-        )
+        description="Run the outreach agent against the Fellowship CRM (Supabase)."
     )
     parser.add_argument(
         "--dry-run",
@@ -83,7 +78,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--yes", "-y",
         action="store_true",
-        help="Skip the confirmation prompt and send immediately (useful for automated runs).",
+        help="Skip the confirmation prompt and send immediately.",
     )
     parser.add_argument(
         "--export-trace",

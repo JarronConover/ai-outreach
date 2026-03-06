@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -46,33 +46,33 @@ _pa_output = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "schemas", "output.p
 _pa_tracer = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "agent", "tracer.py"), "_api.pa.agent.tracer")
 _pa_exceptions = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "agent", "exceptions.py"), "_api.pa.agent.exceptions")
 _pa_tools = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "people_sheet.py"), "_api.pa.tools.people_sheet")
-_pa_demos = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "demos_sheet.py"), "_api.pa.tools.demos_sheet")
-_pa_actions = _import_from(os.path.join(_PROSPECT_AGENT_DIR, "tools", "actions_sheet.py"), "_api.pa.tools.actions_sheet")
 
 _INBOX_AGENT_DIR = os.path.join(os.path.dirname(__file__), "..", "inbox-agent")
-_ia_emails = _import_from(
-    os.path.join(_INBOX_AGENT_DIR, "tools", "emails_sheet.py"),
-    "_api.ia.tools.emails_sheet",
-)
-get_emails_needing_response = _ia_emails.get_emails_needing_response
-update_inbox_email_status = _ia_emails.update_email_status
 
 ICPInput = _pa_input.ICPInput
 log_trace = _pa_tracer.log_trace
+# Prospect-agent tools: write new leads to Supabase + dedup
 append_people = _pa_tools.append_people
 filter_duplicates = _pa_tools.filter_duplicates
-get_existing_people = _pa_tools.get_existing_people
-get_demos = _pa_demos.get_demos
-get_actions = _pa_actions.get_actions
-get_action_by_id = _pa_actions.get_action_by_id
-write_actions = _pa_actions.write_actions
-update_action_status = _pa_actions.update_action_status
-batch_update_action_status = _pa_actions.batch_update_action_status
-cancel_pending_actions = _pa_actions.cancel_pending_actions
-clear_all_actions = _pa_actions.clear_all_actions
-get_company_names = _pa_tools.get_company_names
-get_people_dicts = _pa_tools.get_people_dicts
-get_demos_dicts = _pa_tools.get_demos_dicts
+get_existing_people = _pa_tools.get_existing_people  # used by sheet poller
+
+# ---------------------------------------------------------------------------
+# Supabase CRUD — replaces gspread-based data reads/writes for API layer
+# ---------------------------------------------------------------------------
+from api.supabase_crud import (
+    get_people,
+    get_demos,
+    get_stats,
+    get_actions,
+    get_action_by_id,
+    write_actions,
+    update_action_status,
+    batch_update_action_status,
+    cancel_pending_actions,
+    delete_pending_actions,
+    get_emails_needing_response,
+    update_email_status as update_inbox_email_status,
+)
 
 # prospect-agent/agent/orchestrator.py uses bare imports (`from schemas.input import ICPInput`).
 # Swap sys.modules so those bare imports resolve to prospect-agent's modules, not orchestrator-agent's.
@@ -99,16 +99,12 @@ load_dotenv()
 
 
 # ---------------------------------------------------------------------------
-# Sheet poller — watches for new PROSPECTING people and fires outreach jobs
+# Poller — watches Supabase for new uncontacted people, fires outreach jobs
 # ---------------------------------------------------------------------------
 _seen_person_ids: set[str] = set()
 _stop_poller = threading.Event()
-_POLL_INTERVAL = int(os.getenv("SHEET_POLL_INTERVAL", "60"))  # seconds
+_POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))  # seconds
 _OUTREACH_INTERVAL = int(os.getenv("OUTREACH_INTERVAL_HOURS", "24")) * 3600  # seconds
-
-# Index positions in the People sheet header row
-_IDX_ID = 0
-_IDX_LAST_CONTACT = 11
 
 
 def _start_outreach_job() -> str:
@@ -138,22 +134,23 @@ def _outreach_ticker():
         print(f"[ticker] outreach job queued: {job_id}")
 
 
-def _sheet_poller():
-    """Background thread: polls Google Sheets and triggers outreach for new PROSPECTING people."""
+def _supabase_poller():
+    """Background thread: polls Supabase and triggers outreach for new uncontacted people."""
     print(f"[poller] started, interval={_POLL_INTERVAL}s")
     while not _stop_poller.wait(timeout=_POLL_INTERVAL):
         try:
-            people = get_existing_people()  # dict keyed by email, values are raw rows
+            # get_existing_people() now returns {email: dict} where dict has 'id' and 'last_contact'
+            people = get_existing_people()
             new_ids = []
-            for row in people.values():
-                person_id = row[_IDX_ID] if len(row) > _IDX_ID else ""
-                last_contact = row[_IDX_LAST_CONTACT] if len(row) > _IDX_LAST_CONTACT else ""
-                if person_id and not last_contact.strip() and person_id not in _seen_person_ids:
+            for record in people.values():
+                person_id = record.get("id", "")
+                last_contact = record.get("last_contact") or ""
+                if person_id and not str(last_contact).strip() and person_id not in _seen_person_ids:
                     _seen_person_ids.add(person_id)
                     new_ids.append(person_id)
 
             if new_ids:
-                print(f"[poller] detected {len(new_ids)} new PROSPECTING person(s) — triggering outreach")
+                print(f"[poller] detected {len(new_ids)} new uncontacted person(s) — triggering outreach")
                 job_id = _start_outreach_job()
                 print(f"[poller] outreach job queued: {job_id}")
         except Exception as e:
@@ -162,19 +159,19 @@ def _sheet_poller():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Seed seen IDs from the current sheet state so we don't re-trigger on startup
+    # Seed seen IDs from Supabase so we don't re-trigger on startup
     try:
         people = get_existing_people()
-        for row in people.values():
-            pid = row[_IDX_ID] if len(row) > _IDX_ID else ""
-            last_contact = row[_IDX_LAST_CONTACT] if len(row) > _IDX_LAST_CONTACT else ""
-            if pid and last_contact.strip():
+        for record in people.values():
+            pid = record.get("id", "")
+            last_contact = record.get("last_contact") or ""
+            if pid and str(last_contact).strip():
                 _seen_person_ids.add(pid)
         print(f"[poller] seeded {len(_seen_person_ids)} already-contacted person IDs")
     except Exception as e:
         print(f"[poller] failed to seed existing people: {e}")
 
-    poller_thread = threading.Thread(target=_sheet_poller, daemon=True)
+    poller_thread = threading.Thread(target=_supabase_poller, daemon=True)
     poller_thread.start()
     ticker_thread = threading.Thread(target=_outreach_ticker, daemon=True)
     ticker_thread.start()
@@ -240,7 +237,7 @@ def _run_prospect_job(job_id: str, icp: ICPInput, enable_post_dedup: bool, indus
         agent = ProspectingAgent()
         people_output = agent.run(icp, existing_emails=existing_emails)
 
-        log_trace("writing_to_sheets", {"people_count": len(people_output.people)})
+        log_trace("writing_to_supabase", {"people_count": len(people_output.people)})
         people_dicts = [p.model_dump() for p in people_output.people]
 
         duplicates_skipped = 0
@@ -307,13 +304,13 @@ def _run_pipeline_job(job_id: str, pipeline_input: PipelineInput):
 
 
 def _run_outreach_plan_job(job_id: str):
-    """Background thread: runs OrchestratorAgent.plan_outreach() and writes actions to the Actions sheet."""
+    """Background thread: runs OrchestratorAgent.plan_outreach() and writes actions to Supabase."""
     _jobs[job_id]["status"] = "running"
     _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
     try:
         plan = OrchestratorAgent().plan_outreach()
 
-        clear_all_actions()
+        delete_pending_actions()
         now = datetime.utcnow().isoformat()
         new_actions = []
 
@@ -389,9 +386,9 @@ def _execute_all_actions_job(job_id: str, action_ids: list):
     _jobs[job_id]["status"] = "running"
     _jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
     try:
-        all_sheet_actions = get_actions()
+        all_actions = get_actions()
         id_set = set(action_ids)
-        actions = [a for a in all_sheet_actions if a["id"] in id_set]
+        actions = [a for a in all_actions if a["id"] in id_set]
         OrchestratorAgent().execute_confirmed_actions(actions)
         now = datetime.utcnow().isoformat()
         batch_update_action_status(action_ids, "confirmed", now)
@@ -441,7 +438,7 @@ def list_pending_actions():
 def confirm_all_pending():
     """Execute all still-pending outreach actions."""
     try:
-        pending = get_actions(status_filter="pending")
+        pending = get_actions(status="pending")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     pending_ids = [a["id"] for a in pending]
@@ -466,7 +463,7 @@ def confirm_all_pending():
 def cancel_all_pending():
     """Cancel all pending outreach actions in the Actions sheet."""
     try:
-        pending = get_actions(status_filter="pending")
+        pending = get_actions(status="pending")
         count = len(pending)
         cancel_pending_actions()
     except Exception as e:
@@ -536,7 +533,7 @@ def cancel_pending_action(action_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Demos endpoint (uses service-account credentials via demos_sheet.py)
+# Demos endpoint (reads from Supabase via supabase_crud.get_demos)
 # ---------------------------------------------------------------------------
 
 
@@ -633,29 +630,20 @@ def list_jobs():
 
 @app.get("/people")
 def list_people():
-    """List all prospects from Google Sheets, with company_name resolved from Companies sheet."""
-    people = get_people_dicts()
-    companies = get_company_names()
-    for person in people:
-        person["company_name"] = companies.get(person.get("company_id", ""), person.get("company_id", ""))
-    return people
+    """List all people from Supabase with company_name resolved via join."""
+    try:
+        return get_people()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/stats")
-def get_stats():
-    """Return KPI counts derived from the People and Demos sheets."""
-    people = get_people_dicts()
-    demos = get_demos_dicts()
-
-    stages = [p.get("stage", "").strip().lower() for p in people]
-    demo_statuses = [d.get("status", "").strip().lower() for d in demos]
-
-    return {
-        "total_prospects": len(people),
-        "clients": sum(1 for s in stages if s not in ("prospect", "prospecting", "")),
-        "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
-        "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
-    }
+def stats_endpoint():
+    """Return KPI counts from Supabase."""
+    try:
+        return get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 _dashboard_cache: dict = {"data": None, "expires_at": 0.0}
@@ -664,32 +652,20 @@ _DASHBOARD_TTL = 30  # seconds
 
 @app.get("/dashboard")
 def get_dashboard():
-    """Single endpoint returning people, demos, and stats in one Sheets round trip.
+    """Single endpoint returning people, demos, and stats from Supabase.
 
-    Results are cached for 30 s to avoid hitting the Sheets read-quota limit.
+    Results are cached for 30 s.
     """
     now = time.time()
     if _dashboard_cache["data"] is not None and now < _dashboard_cache["expires_at"]:
         return _dashboard_cache["data"]
 
-    people = get_people_dicts()
-    companies = get_company_names()
-    demos = get_demos()
-
-    for person in people:
-        person["company_name"] = companies.get(person.get("company_id", ""), person.get("company_id", ""))
-
-    demos.sort(key=lambda d: (d.get("date") or ""))
-
-    stages = [p.get("stage", "").strip().lower() for p in people]
-    demo_statuses = [d.get("status", "").strip().lower() for d in demos]
-
-    stats = {
-        "total_prospects": len(people),
-        "clients": sum(1 for s in stages if s not in ("prospect", "prospecting", "")),
-        "demos_scheduled": sum(1 for s in demo_statuses if s == "scheduled"),
-        "demos_completed": sum(1 for s in demo_statuses if s == "completed"),
-    }
+    try:
+        people = get_people()
+        demos = get_demos()
+        stats = get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     result = {"stats": stats, "people": people, "demos": demos}
     _dashboard_cache["data"] = result
@@ -785,3 +761,52 @@ def resolve_email(email_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"resolved": email_id}
+
+
+# ---------------------------------------------------------------------------
+# CSV import endpoints  (Google Sheets export → Supabase)
+# ---------------------------------------------------------------------------
+
+from api.csv_import import parse_companies_csv, parse_people_csv, parse_demos_csv
+from api.db import get_db
+
+_PARSERS = {
+    "companies": parse_companies_csv,
+    "people":    parse_people_csv,
+    "demos":     parse_demos_csv,
+}
+
+_UPSERT_CONFLICT: dict[str, str] = {
+    "companies": "id",
+    "people":    "email",   # email is the natural dedup key
+    "demos":     "id",
+}
+
+
+@app.post("/import/{table}", status_code=200)
+async def import_csv(
+    table: str,
+    file: UploadFile = File(...),
+):
+    """Upload a Google Sheets CSV export and upsert rows into Supabase.
+
+    table must be one of: companies, people, demos
+    Import order matters: companies → people → demos.
+    """
+    if table not in _PARSERS:
+        raise HTTPException(status_code=400, detail=f"Unknown table '{table}'. Must be: companies, people, demos")
+
+    content = (await file.read()).decode("utf-8", errors="replace")
+    parser = _PARSERS[table]
+    rows, errors = parser(content)
+
+    if not rows:
+        return {"table": table, "imported": 0, "errors": errors}
+
+    try:
+        db = get_db()
+        db.table(table).upsert(rows, on_conflict=_UPSERT_CONFLICT[table]).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Supabase upsert failed: {exc}")
+
+    return {"table": table, "imported": len(rows), "errors": errors}

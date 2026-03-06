@@ -11,9 +11,6 @@ from pydantic import BaseModel
 class InboxAgentConfig(BaseModel):
     """All runtime settings for an inbox-agent run."""
 
-    # Google Sheets
-    spreadsheet_id: str
-
     # OAuth (inbox-agent uses its own token file with gmail.modify scope)
     credentials_file: str
     token_file: str
@@ -24,7 +21,7 @@ class InboxAgentConfig(BaseModel):
     company_name: str = "Fellowship"
 
     # Behaviour
-    dry_run: bool = False      # If True, don't send emails or write to Sheets
+    dry_run: bool = False      # If True, don't send emails or write to Supabase
     max_emails: int = 50       # Max unread messages to fetch per run
 
     @classmethod
@@ -33,7 +30,6 @@ class InboxAgentConfig(BaseModel):
         _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
         _INBOX_DIR = os.path.dirname(_THIS_DIR)
         return cls(
-            spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
             credentials_file=os.getenv(
                 "INBOX_CREDENTIALS_FILE",
                 # Fall back to outreach-agent's OAuth credentials (installed app type)
