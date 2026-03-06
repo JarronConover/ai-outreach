@@ -130,6 +130,16 @@ class ScheduleDemoTool(BaseTool):
             if self.config.dry_run:
                 self.tracer.log_calendar_event_skipped(person.email, "dry_run=True")
                 self.tracer.log_email_skipped(person.email, "dry_run=True")
+                _dry_subject, _dry_body = _build_invite_email(
+                    person_name=person.name,
+                    person_email=person.email,
+                    company_name=company_name,
+                    sender_name=self.config.sender_name,
+                    our_company=self.config.company_name,
+                    demo_start=demo_start,
+                    meet_link=None,
+                    stage_label=stage_label,
+                )
                 results.append((
                     CalendarEventResult(
                         event_title=event_title,
@@ -145,7 +155,8 @@ class ScheduleDemoTool(BaseTool):
                     EmailResult(
                         recipient_email=person.email,
                         recipient_name=person.name,
-                        subject=f"{stage_label} Confirmed – {self.config.company_name}",
+                        subject=_dry_subject,
+                        body=_dry_body,
                         email_type="demo_invite",
                         sent_at=datetime.now(timezone.utc),
                         success=True,

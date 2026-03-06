@@ -101,6 +101,7 @@ class ScheduleFollowUpTool(BaseTool):
                     recipient_email=pwc.email,
                     recipient_name=pwc.name,
                     subject=subject,
+                    body=html_body,
                     email_type="followup_email",
                     sent_at=datetime.now(timezone.utc),
                     success=True,

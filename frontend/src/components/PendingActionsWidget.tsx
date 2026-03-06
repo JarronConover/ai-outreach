@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, CheckCircle2, ClipboardList, Mail, Calendar, Check, CheckCheck, X, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, ClipboardList, Mail, Calendar, Check, CheckCheck, X, XCircle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useJob } from "@/hooks/useJob";
@@ -37,6 +37,19 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   demo_onboarding: "Onboarding",
   demo_client: "Client Review",
 };
+
+function htmlToPlainText(html: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return (div.innerText || div.textContent || "").trim();
+}
+
+function buildGmailComposeUrl(action: PendingAction): string {
+  const to = encodeURIComponent(action.recipient_email || "");
+  const su = encodeURIComponent(action.subject || "");
+  const body = encodeURIComponent(action.body ? htmlToPlainText(action.body) : "");
+  return `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}&body=${body}`;
+}
 
 function formatTime(iso: string | undefined): string {
   if (!iso) return "";
@@ -102,19 +115,32 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
     }
   }, [bulkJob?.status, isBulkConfirming]);
 
-  async function handleConfirmOne(actionId: string) {
+  async function handleConfirmOne(actionId: string, action: PendingAction) {
     setConfirmingIds((prev) => new Set(prev).add(actionId));
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/outreach/pending/${actionId}/confirm`, { method: "POST" });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.detail || `HTTP ${res.status}`);
+      if (action.kind === "email") {
+        // Mark confirmed, then open Gmail compose so the user can review and send
+        const res = await fetch(`/api/outreach/pending/${actionId}/compose`, { method: "POST" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.detail || `HTTP ${res.status}`);
+        }
+        window.open(buildGmailComposeUrl(action), "_blank");
+        await fetchPending();
+        onJobComplete();
+      } else {
+        // Calendar actions: execute via orchestrator as before
+        const res = await fetch(`/api/outreach/pending/${actionId}/confirm`, { method: "POST" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.detail || `HTTP ${res.status}`);
+        }
+        const { job_id } = await res.json();
+        await pollUntilDone(job_id);
+        await fetchPending();
+        onJobComplete();
       }
-      const { job_id } = await res.json();
-      await pollUntilDone(job_id);
-      await fetchPending();
-      onJobComplete();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Confirm failed.");
     } finally {
@@ -130,18 +156,32 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
     setIsBulkConfirming(true);
     setErrorMsg(null);
     try {
-      const res = await fetch("/api/outreach/pending/confirm-all", { method: "POST" });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.detail || `HTTP ${res.status}`);
+      const emailActions = actions.filter((a) => a.kind === "email");
+      const calendarActions = actions.filter((a) => a.kind === "calendar");
+
+      // Email actions: mark confirmed + open Gmail compose for each
+      for (const action of emailActions) {
+        await fetch(`/api/outreach/pending/${action.id}/compose`, { method: "POST" });
+        window.open(buildGmailComposeUrl(action), "_blank");
       }
-      const { job_id } = await res.json();
-      if (job_id) {
-        setBulkJobId(job_id);
-      } else {
-        setIsBulkConfirming(false);
-        await fetchPending();
+
+      // Calendar actions: run through orchestrator (email actions already marked confirmed)
+      if (calendarActions.length > 0) {
+        const res = await fetch("/api/outreach/pending/confirm-all", { method: "POST" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.detail || `HTTP ${res.status}`);
+        }
+        const { job_id } = await res.json();
+        if (job_id) {
+          setBulkJobId(job_id);
+          return; // useEffect handles cleanup when job completes
+        }
       }
+
+      setIsBulkConfirming(false);
+      await fetchPending();
+      onJobComplete();
     } catch (err) {
       setIsBulkConfirming(false);
       setErrorMsg(err instanceof Error ? err.message : "Confirm all failed.");
@@ -327,17 +367,19 @@ export function PendingActionsWidget({ onJobComplete }: Props) {
                   </div>
                   <div className="flex flex-col gap-1 shrink-0 self-center">
                     <button
-                      onClick={() => handleConfirmOne(action.id)}
+                      onClick={() => handleConfirmOne(action.id, action)}
                       disabled={isConfirming || isBulkConfirming || cancelingIds.has(action.id) || isCancelingAll}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-[#0d9488] text-white hover:bg-[#0f766e] disabled:opacity-50 transition-colors"
-                      title="Confirm"
+                      title={action.kind === "email" ? "Open draft in Gmail" : "Confirm"}
                     >
                       {isConfirming ? (
                         <Loader2 className="size-2.5 animate-spin" />
+                      ) : action.kind === "email" ? (
+                        <ExternalLink className="size-2.5" />
                       ) : (
                         <Check className="size-2.5" />
                       )}
-                      Confirm
+                      {action.kind === "email" ? "Send" : "Confirm"}
                     </button>
                     <button
                       onClick={() => handleCancelOne(action.id)}

@@ -331,6 +331,7 @@ def _run_outreach_plan_job(job_id: str):
                 "recipient_email": e.recipient_email,
                 "recipient_name": e.recipient_name,
                 "subject": e.subject,
+                "body": e.body or "",
                 "people_id": e.person_id,
                 "status": "pending",
                 "created_at": now,
@@ -497,6 +498,25 @@ def confirm_pending_action(action_id: str):
     }
     threading.Thread(target=_execute_single_action_job, args=(job_id, action), daemon=True).start()
     return {"job_id": job_id, "status": "pending"}
+
+
+@app.post("/outreach/pending/{action_id}/compose", status_code=200)
+def compose_email_action(action_id: str):
+    """Mark an email action as confirmed without auto-sending; user composes in Gmail."""
+    try:
+        action = get_action_by_id(action_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    if action["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Action is already {action['status']}")
+    try:
+        from datetime import timezone as _tz
+        update_action_status(action_id, "confirmed", datetime.now(_tz.utc).isoformat())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"confirmed": action_id}
 
 
 @app.delete("/outreach/pending/{action_id}")

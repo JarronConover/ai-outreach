@@ -86,6 +86,7 @@ class EmailClientsTool(BaseTool):
                     recipient_email=pwc.email,
                     recipient_name=pwc.name,
                     subject=subject,
+                    body=html_body,
                     email_type="client_outreach",
                     sent_at=datetime.now(timezone.utc),
                     success=True,

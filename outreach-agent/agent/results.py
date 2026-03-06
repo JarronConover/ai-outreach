@@ -20,6 +20,8 @@ class EmailResult(BaseModel):
     error: Optional[str] = None
     # Populated during dry-run so the API can execute individual confirmed actions
     person_id: Optional[str] = None
+    # Full HTML body — stored at plan time so the Gmail compose window can be pre-filled
+    body: Optional[str] = None
 
 
 class CalendarEventResult(BaseModel):
