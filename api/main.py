@@ -764,10 +764,11 @@ def resolve_email(email_id: str):
 
 
 # ---------------------------------------------------------------------------
-# CSV import endpoints  (Google Sheets export → Supabase)
+# CSV import endpoints
 # ---------------------------------------------------------------------------
 
 from api.csv_import import parse_companies_csv, parse_people_csv, parse_demos_csv
+from api.smart_import import smart_import_csv
 from api.db import get_db
 
 _PARSERS = {
@@ -810,3 +811,14 @@ async def import_csv(
         raise HTTPException(status_code=500, detail=f"Supabase upsert failed: {exc}")
 
     return {"table": table, "imported": len(rows), "errors": errors}
+
+
+@app.post("/import/smart", status_code=200)
+async def import_csv_smart(file: UploadFile = File(...)):
+    """Upload any CSV — LLM auto-maps columns to companies and people."""
+    content = (await file.read()).decode("utf-8", errors="replace")
+    try:
+        result = smart_import_csv(content)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return result
