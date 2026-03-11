@@ -784,12 +784,23 @@ _UPSERT_CONFLICT: dict[str, str] = {
 }
 
 
+@app.post("/import/smart", status_code=200)
+async def import_csv_smart(file: UploadFile = File(...)):
+    """Upload any CSV — LLM auto-maps columns to companies and people."""
+    content = (await file.read()).decode("utf-8", errors="replace")
+    try:
+        result = smart_import_csv(content)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return result
+
+
 @app.post("/import/{table}", status_code=200)
 async def import_csv(
     table: str,
     file: UploadFile = File(...),
 ):
-    """Upload a Google Sheets CSV export and upsert rows into Supabase.
+    """Upload a structured CSV export and upsert rows into Supabase.
 
     table must be one of: companies, people, demos
     Import order matters: companies → people → demos.
@@ -811,14 +822,3 @@ async def import_csv(
         raise HTTPException(status_code=500, detail=f"Supabase upsert failed: {exc}")
 
     return {"table": table, "imported": len(rows), "errors": errors}
-
-
-@app.post("/import/smart", status_code=200)
-async def import_csv_smart(file: UploadFile = File(...)):
-    """Upload any CSV — LLM auto-maps columns to companies and people."""
-    content = (await file.read()).decode("utf-8", errors="replace")
-    try:
-        result = smart_import_csv(content)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-    return result

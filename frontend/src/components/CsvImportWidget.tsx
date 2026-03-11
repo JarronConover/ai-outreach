@@ -47,8 +47,10 @@ export function CsvImportWidget() {
       const form = new FormData();
       form.append("file", file);
       const res = await fetch("/api/import/smart", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`);
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new Error(data?.detail ?? `HTTP ${res.status}: ${text.slice(0, 200)}`);
+      if (!data) throw new Error(`Empty response (HTTP ${res.status})`);
       setResult(data as SmartImportResult);
     } catch (err) {
       setResult({

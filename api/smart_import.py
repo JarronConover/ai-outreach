@@ -14,9 +14,27 @@ import re
 import uuid
 from typing import Optional
 
-import google.generativeai as genai
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from api.db import get_db
+
+
+def _call_gemini(prompt: str, api_key: str) -> str:
+    """Call Gemini 2.0 Flash and return the raw text response."""
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=api_key,
+        temperature=0,
+    )
+    result = llm.invoke(prompt)
+    return str(result.content)
+
+
+def _extract_json_text(text: str) -> str:
+    """Strip markdown code fences so JSON can be parsed."""
+    text = re.sub(r"```(?:json)?\s*", "", text)
+    text = re.sub(r"```", "", text)
+    return text.strip()
 
 # ---------------------------------------------------------------------------
 # Schema definitions (must match Supabase migration exactly)
@@ -151,14 +169,6 @@ def detect_column_mappings(
     Ask Gemini which CSV column maps to which DB field.
     Returns { "person": { db_field: csv_col }, "company": { db_field: csv_col } }
     """
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash",
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-        ),
-    )
-
     header_list = ", ".join(f'"{h}"' for h in headers)
     sample_json = json.dumps(sample_rows[:5], indent=2)
 
@@ -188,10 +198,9 @@ Rules:
 4. If unsure, omit the field — do NOT guess.
 5. One CSV column may only map to one field.
 
-Return ONLY valid JSON."""
+Return ONLY valid JSON, no commentary."""
 
-    result = model.generate_content(prompt)
-    text = result.text.strip()
+    text = _extract_json_text(_call_gemini(prompt, api_key))
 
     try:
         mapping = json.loads(text)
@@ -289,12 +298,6 @@ def enrich_data(
     batch_size: int = 15,
 ) -> list[dict[str, object]]:
     """Fill missing obvious fields using Gemini. Returns enriched rows."""
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash",
-        generation_config=genai.GenerationConfig(response_mime_type="application/json"),
-    )
-
     enriched_all: list[dict[str, object]] = []
 
     for i in range(0, len(rows), batch_size):
@@ -315,11 +318,12 @@ Each object has "company" and "person" keys.
 - Set to null if unsure — do NOT fabricate uncertain data.
 - Do NOT modify existing field values.
 - Only use fields from the schemas above.
-- Preserve all existing values exactly."""
+- Preserve all existing values exactly.
+Return ONLY valid JSON, no commentary."""
 
         try:
-            result = model.generate_content(prompt)
-            enriched_batch = json.loads(result.text)
+            raw = _extract_json_text(_call_gemini(prompt, api_key))
+            enriched_batch = json.loads(raw)
             if not isinstance(enriched_batch, list) or len(enriched_batch) != len(batch):
                 enriched_all.extend(batch)
                 continue
