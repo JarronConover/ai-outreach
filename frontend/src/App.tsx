@@ -1,4 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
+import { initAuthFetch, resetAuthFetch, setAuthToken } from "@/lib/authFetch";
+import { LoginPage } from "@/pages/LoginPage";
 import { Header } from "@/components/Header";
 import { Sidebar, type Page } from "@/components/Sidebar";
 import { PendingActionsWidget } from "@/components/PendingActionsWidget";
@@ -31,11 +35,33 @@ const SIDEBAR_EXPANDED = 288; // w-72
 const SIDEBAR_COLLAPSED = 72;  // w-18
 
 export default function App() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      if (data.session) {
+        setAuthToken(data.session.access_token);
+        initAuthFetch();
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      if (s) {
+        setAuthToken(s.access_token);
+        initAuthFetch();
+      } else {
+        resetAuthFetch();
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -51,14 +77,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentPage === "dashboard") fetchDashboard();
-  }, [fetchDashboard, refreshKey, currentPage]);
+    if (session && currentPage === "dashboard") fetchDashboard();
+  }, [session, fetchDashboard, refreshKey, currentPage]);
 
   const handleJobComplete = useCallback(() => {
     setRefreshKey((k) => k + 1);
   }, []);
 
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED;
+
+  // Still resolving session from storage
+  if (session === undefined) return null;
+
+  // Not logged in — show login page
+  if (session === null) return <LoginPage />;
 
   return (
     <div className="min-h-screen">
