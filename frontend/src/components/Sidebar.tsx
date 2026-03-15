@@ -16,13 +16,13 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-const NAV_ITEMS: { page: Page; label: string; icon: React.ElementType }[] = [
+const NAV_ITEMS: { page: Page; label: string; icon: React.ElementType; separator?: boolean }[] = [
   { page: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { page: "companies", label: "Companies", icon: Building2 },
+  { page: "companies", label: "Companies", icon: Building2, separator: true },
   { page: "people",    label: "People",    icon: Users },
   { page: "demos",     label: "Demos",     icon: Calendar },
   { page: "emails",    label: "Emails",    icon: Mail },
-  { page: "add",        label: "Add Record",  icon: PlusCircle },
+  { page: "add",        label: "Add Record",  icon: PlusCircle, separator: true },
   { page: "references", label: "References",  icon: BookOpen },
 ];
 
@@ -115,33 +115,37 @@ export function Sidebar({ currentPage, onNavigate, onJobComplete, collapsed, onT
             Navigation
           </p>
         )}
-        {NAV_ITEMS.map(({ page, label, icon: Icon }) =>
+        {NAV_ITEMS.map(({ page, label, icon: Icon, separator }) =>
           collapsed ? (
-            <button
-              key={page}
-              onClick={() => onNavigate(page)}
-              title={label}
-              className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-                currentPage === page
-                  ? "bg-[#0d9488]/10 text-[#0d9488]"
-                  : "text-[#9ca3af] hover:bg-[#f3f4f6] hover:text-[#374151]"
-              }`}
-            >
-              <Icon className="size-5" />
-            </button>
+            <div key={page} className="flex flex-col items-center w-full">
+              {separator && <hr className="w-8 border-[#e5e7eb] my-1" />}
+              <button
+                onClick={() => onNavigate(page)}
+                title={label}
+                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                  currentPage === page
+                    ? "bg-[#0d9488]/10 text-[#0d9488]"
+                    : "text-[#9ca3af] hover:bg-[#f3f4f6] hover:text-[#374151]"
+                }`}
+              >
+                <Icon className="size-5" />
+              </button>
+            </div>
           ) : (
-            <button
-              key={page}
-              onClick={() => onNavigate(page)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left w-full ${
-                currentPage === page
-                  ? "bg-[#0d9488]/10 text-[#0d9488]"
-                  : "text-[#374151] hover:bg-[#f3f4f6] hover:text-[#111827]"
-              }`}
-            >
-              <Icon className={`size-4 shrink-0 ${currentPage === page ? "text-[#0d9488]" : "text-[#9ca3af]"}`} />
-              {label}
-            </button>
+            <div key={page} className="flex flex-col w-full">
+              {separator && <hr className="border-[#e5e7eb] mx-3 my-1" />}
+              <button
+                onClick={() => onNavigate(page)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left w-full ${
+                  currentPage === page
+                    ? "bg-[#0d9488]/10 text-[#0d9488]"
+                    : "text-[#374151] hover:bg-[#f3f4f6] hover:text-[#111827]"
+                }`}
+              >
+                <Icon className={`size-4 shrink-0 ${currentPage === page ? "text-[#0d9488]" : "text-[#9ca3af]"}`} />
+                {label}
+              </button>
+            </div>
           )
         )}
       </nav>
