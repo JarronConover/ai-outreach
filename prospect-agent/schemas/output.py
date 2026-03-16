@@ -22,6 +22,20 @@ class Person(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class Company(BaseModel):
+    """Company record returned by the prospecting agent."""
+    name: str
+    website: Optional[str] = None
+    industry: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    phone: Optional[str] = None
+    employee_count: Optional[str] = None
+
+
 class PeopleOutput(BaseModel):
-    """Output containing a list of Person records."""
+    """Output containing a list of Person records and their companies."""
     people: List[Person]
+    companies: List[Company] = Field(default_factory=list)

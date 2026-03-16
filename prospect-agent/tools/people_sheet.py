@@ -107,17 +107,25 @@ def filter_duplicates(new_people, industry=None):
 # ---------------------------------------------------------------------------
 
 
-def append_people(people_list, industry=None):
+def append_people(people_list, industry=None, companies_by_name=None):
     """Upsert people (and their companies) into Supabase.
 
     For each person that carries a `company_name` field, the company is looked
     up by name (case-insensitive) or created if it does not yet exist, and the
     resulting UUID is set as the person's `company_id`.
+
+    Args:
+        people_list: List of person dicts to upsert.
+        industry: Fallback industry string if not provided by company data.
+        companies_by_name: Optional dict of {company_name_lower: company_dict} with
+            full company details (website, city, state, zip, phone, employee_count, etc.)
+            returned by the prospecting agent.
     """
     if not people_list:
         return "Success: 0 people added."
 
     db = get_db()
+    _companies_by_name = {k.lower(): v for k, v in (companies_by_name or {}).items()}
 
     # Build name->id map from existing companies
     company_rows = db.table("companies").select("id, name").execute().data
@@ -137,12 +145,20 @@ def append_people(people_list, industry=None):
         elif cn_lower in seen_names:
             person["company_id"] = seen_names[cn_lower]
         else:
-            new_id = person.get("company_id") or str(uuid.uuid4())
+            new_id = str(uuid.uuid4())
             seen_names[cn_lower] = new_id
+            details = _companies_by_name.get(cn_lower, {})
             new_companies.append({
                 "id": new_id,
                 "name": company_name,
-                "industry": industry or "",
+                "industry": details.get("industry") or industry or "",
+                "website": details.get("website") or None,
+                "address": details.get("address") or None,
+                "city": details.get("city") or None,
+                "state": details.get("state") or None,
+                "zip": details.get("zip") or None,
+                "phone": details.get("phone") or None,
+                "employee_count": details.get("employee_count") or None,
             })
             person["company_id"] = new_id
 
@@ -174,3 +190,22 @@ def append_people(people_list, industry=None):
 def append_person(person_dict):
     """Insert or update a single person in Supabase."""
     return append_people([person_dict])
+
+
+def append_company(company_dict: dict) -> dict:
+    """Insert or update a single company in Supabase. Returns the saved company dict."""
+    db = get_db()
+    row = {
+        "id": company_dict.get("id") or str(uuid.uuid4()),
+        "name": company_dict.get("name", ""),
+        "website": company_dict.get("website") or None,
+        "industry": company_dict.get("industry") or None,
+        "address": company_dict.get("address") or None,
+        "city": company_dict.get("city") or None,
+        "state": company_dict.get("state") or None,
+        "zip": company_dict.get("zip") or None,
+        "phone": company_dict.get("phone") or None,
+        "employee_count": company_dict.get("employee_count") or None,
+    }
+    db.table("companies").upsert(row, on_conflict="id").execute()
+    return row

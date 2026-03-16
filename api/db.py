@@ -1,16 +1,4 @@
-"""Supabase client singleton for the API."""
-from __future__ import annotations
+"""Backward-compatibility shim — real implementation is in backend/db/client.py."""
+from backend.db.client import get_db  # noqa: F401
 
-import os
-from supabase import create_client, Client
-
-_client: Client | None = None
-
-
-def get_db() -> Client:
-    global _client
-    if _client is None:
-        url = os.environ["SUPABASE_URL"]
-        key = os.environ["SUPABASE_KEY"]
-        _client = create_client(url, key)
-    return _client
+__all__ = ["get_db"]
