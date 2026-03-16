@@ -54,8 +54,10 @@ _people_sheet_mod = _load_module_from_path(
     os.path.join(_PROSPECT_AGENT_DIR, "tools", "people_sheet.py"),
 )
 get_existing_people = _people_sheet_mod.get_existing_people
+get_company_names = _people_sheet_mod.get_company_names
 filter_duplicates = _people_sheet_mod.filter_duplicates
 append_people = _people_sheet_mod.append_people
+append_company = _people_sheet_mod.append_company
 
 # Load prospect-agent's agent.orchestrator (ProspectingAgent) under a private name.
 # prospect-agent/agent/orchestrator.py does `from schemas.input import ICPInput` and
@@ -157,11 +159,16 @@ class OrchestratorAgent:
 
             existing_people = get_existing_people()
             existing_emails = list(existing_people.keys())
+            existing_companies = list(get_company_names().values())
 
             agent = ProspectingAgent()
-            people_output = agent.run(icp, existing_emails=existing_emails)
+            people_output = agent.run(icp, existing_emails=existing_emails, existing_companies=existing_companies)
 
             people_dicts = [p.model_dump() for p in people_output.people]
+            companies_by_name = {
+                c.name.lower(): c.model_dump()
+                for c in (people_output.companies or [])
+            }
             duplicates_skipped = 0
 
             if pipeline_input.enable_post_deduplication:
@@ -170,7 +177,7 @@ class OrchestratorAgent:
 
             new_ids = []
             if people_dicts:
-                append_people(people_dicts, industry=pipeline_input.industry)
+                append_people(people_dicts, industry=pipeline_input.industry, companies_by_name=companies_by_name)
                 new_ids = [p.get("id", "") for p in people_dicts]
 
             return StageResult(
@@ -192,6 +199,33 @@ class OrchestratorAgent:
             status="skipped",
             error="OutreachAgent not yet available — merge outreach branch to enable.",
         )
+
+    # ------------------------------------------------------------------
+    # Entity enrichment & add
+    # ------------------------------------------------------------------
+
+    def enrich_and_add_entity(self, entity_type: str, partial_data: dict) -> dict:
+        """Enrich a partial entity record via the prospect agent and write to Supabase.
+
+        Args:
+            entity_type: "person" or "company"
+            partial_data: Whatever fields the user provided
+
+        Returns:
+            The enriched entity dict that was saved to Supabase
+        """
+        log_trace("enrich_and_add_start", {"entity_type": entity_type, "partial_data": partial_data})
+        agent = ProspectingAgent()
+        enriched = agent.enrich_entity(entity_type, partial_data)
+        log_trace("enrich_and_add_enriched", {"entity_type": entity_type, "enriched": enriched})
+
+        if entity_type == "person":
+            append_people([enriched])
+        elif entity_type == "company":
+            enriched = append_company(enriched)
+
+        log_trace("enrich_and_add_complete", {"entity_type": entity_type})
+        return enriched
 
     # ------------------------------------------------------------------
     # Outreach-agent integration
@@ -225,7 +259,7 @@ class OrchestratorAgent:
             return
 
         def _execute(orch):
-            crm = orch.api.load_crm_context(orch.config.spreadsheet_id)
+            crm = orch.api.load_crm_context()
 
             prospect_ids: set = set()
             client_ids: set = set()
@@ -390,14 +424,13 @@ class OrchestratorAgent:
             from agent.orchestrator import OutreachOrchestrator  # noqa: E402
 
             missing = [
-                v for v in ("GOOGLE_SHEET_ID", "SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
+                v for v in ("SENDER_EMAIL", "SENDER_NAME", "COMPANY_NAME")
                 if not os.getenv(v)
             ]
             if missing:
                 raise RuntimeError(f"Missing env vars: {', '.join(missing)}")
 
             config = OutreachAgentConfig(
-                spreadsheet_id=os.environ["GOOGLE_SHEET_ID"],
                 credentials_file=os.getenv(
                     "GOOGLE_CREDENTIALS_FILE",
                     os.path.join(_OUTREACH_AGENT_DIR, "credentials.json"),

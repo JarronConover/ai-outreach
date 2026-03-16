@@ -1,21 +1,15 @@
 """
 Tool 3 – Schedule Demo Meetings
 
-Scans the Demos sheet for every row where:
+Scans Supabase demos for every row where:
   • status            = "scheduled"
   • date              is set
   • event_id is empty  (not yet on the calendar)
 
 For each matching demo the tool:
-  1. Creates a Google Calendar event with all three attendees:
-       • the contact's email
-       • SENDER_EMAIL  (from .env)
-       • BCC_EMAIL     (from .env, if set)
-     Google automatically sends calendar invites to all attendees.
-  2. Writes the new event ID back to Demos.event_id (column H).
-  3. Writes the demo's ID to People.next_demo_id (column J) for the
-     matching person, so the People sheet always reflects the upcoming demo.
-  4. Sends a personalised confirmation email to the contact.
+  1. Creates a Google Calendar event.
+  2. Writes the new event ID back to Supabase (Demos.event_id).
+  3. Sends a personalised confirmation email to the contact.
 
 This tool is idempotent: once event_id is written the demo is
 excluded from future runs.
@@ -29,7 +23,6 @@ from pathlib import Path
 from agent.exceptions import DemoSchedulingError, GmailAPIError
 from agent.results import CalendarEventResult, EmailResult
 from schemas.crm import CRMContext, DemoStatus
-from schemas.sheet_config import DemoColumns, PeopleColumns, SheetNames
 from tools.tool import BaseTool
 
 _TEMPLATE = Path(__file__).parent.parent.parent / "business" / "templates" / "demo_invite.html"
@@ -68,16 +61,13 @@ class ScheduleDemoTool(BaseTool):
     """
     Creates calendar events and sends confirmation emails for scheduled demos.
 
-    Filtering criteria (Demos sheet):
+    Filtering criteria:
         status            = "scheduled"
         date              is set
         event_id is empty
 
-    Calendar attendees: contact email + sender_email + bcc_email (if set)
-
-    Sheet updates on success:
-        Demos.event_id ← Google Calendar event ID
-        People.next_demo_id     ← demo.id  (for the matching person)
+    Supabase updates on success:
+        demos.event_id    <- Google Calendar event ID
     """
 
     tool_name = "schedule_demo"
@@ -98,11 +88,11 @@ class ScheduleDemoTool(BaseTool):
             and not demo.event_id
         ]
 
-        # Warn about any scheduled demos that will be skipped due to a missing date
+        # Warn about any scheduled demos missing a date
         for demo in crm.demos:
             if demo.status.lower() == DemoStatus.SCHEDULED and not demo.event_id and demo.date is None:
                 self.tracer.log_calendar_event_skipped(
-                    demo.id, f"demo {demo.id} is scheduled but has no parseable date – add a date to the Demos sheet"
+                    demo.id, f"demo {demo.id} is scheduled but has no parseable date"
                 )
 
         self.tracer.log_tool_start(
@@ -188,24 +178,8 @@ class ScheduleDemoTool(BaseTool):
                     .get("uri")
                 )
 
-                # Write event ID back to Demos sheet (idempotency guard)
-                self.api.update_cell(
-                    self.config.spreadsheet_id,
-                    SheetNames.DEMOS,
-                    demo.row_index,
-                    DemoColumns.EVENT_ID,
-                    event_id,
-                )
-
-                # Write demo ID to People.next_demo_id so the People sheet
-                # always reflects the contact's upcoming scheduled demo
-                self.api.update_cell(
-                    self.config.spreadsheet_id,
-                    SheetNames.PEOPLE,
-                    person.row_index,
-                    PeopleColumns.NEXT_DEMO_ID,
-                    demo.id,
-                )
+                # Write event ID back to Supabase (idempotency guard)
+                self.api.update_demo(demo.id, {"event_id": event_id})
 
                 self.tracer.log_calendar_event_created(
                     event_id=event_id,
@@ -274,17 +248,10 @@ class ScheduleDemoTool(BaseTool):
                     html_body=html_body,
                 )
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                for col, val in [
-                    (PeopleColumns.LAST_CONTACT, now_str),
-                    (PeopleColumns.LAST_CONTACT_DATE, now_str),
-                ]:
-                    self.api.update_cell(
-                        self.config.spreadsheet_id,
-                        SheetNames.PEOPLE,
-                        person.row_index,
-                        col,
-                        val,
-                    )
+                self.api.update_person(person.id, {
+                    "last_contact": "email",
+                    "last_contact_date": now_str,
+                })
                 self.tracer.log_email_sent(
                     recipient_email=person.email,
                     recipient_name=person.name,

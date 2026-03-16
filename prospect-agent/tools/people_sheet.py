@@ -1,181 +1,96 @@
+"""Supabase-backed CRUD for People and Companies data.
+
+Replaces the previous gspread implementation. All reads and writes now
+go through the Supabase PostgREST client via api.db.get_db().
+"""
 import os
+import sys
 import uuid
-import gspread
-from google.oauth2.service_account import Credentials
 from typing import List, Optional
 
-_SCOPES = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive",
-]
+# Ensure project root is in sys.path so `api.*` resolves correctly.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
-# Matches schemas/sheet_config.py PeopleColumns exactly (0-based)
-# A  id
-# B  name
-# C  company_id
-# D  email
-# E  phone
-# F  linkedin
-# G  title
-# H  stage
-# I  last_demo_id
-# J  next_demo_id
-# K  last_response
-# L  last_contact
-# M  last_response_date
-# N  last_contact_date
-_PEOPLE_HEADER_ROW = [
-    "id", "name", "company_id", "email",
-    "phone", "linkedin", "title", "stage",
-    "last_demo_id", "next_demo_id",
-    "last_response", "last_contact",
-    "last_response_date", "last_contact_date",
-]
-
-# Matches schemas/sheet_config.py CompanyColumns exactly (0-based)
-_COMPANIES_HEADER_ROW = [
-    "id", "name", "address", "city", "state", "zip",
-    "phone", "website", "industry", "employee_count",
-]
-
-_DEMOS_HEADER_ROW = [
-    "id", "people_id", "company_id", "type", "date", "status", "count", "event_id",
-]
-
-_gspread_client = None
-_spreadsheet = None
-_people_ws = None
+from api.db import get_db  # noqa: E402
 
 
-def _get_people_worksheet():
-    """Get or create the People worksheet, caching the client and spreadsheet."""
-    global _gspread_client, _spreadsheet, _people_ws
-    if _people_ws is not None:
-        return _people_ws
-    creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-    sheet_id = os.environ["GOOGLE_SHEET_ID"]
-    if _gspread_client is None:
-        creds = Credentials.from_service_account_file(creds_file, scopes=_SCOPES)
-        _gspread_client = gspread.authorize(creds)
-    if _spreadsheet is None:
-        _spreadsheet = _gspread_client.open_by_key(sheet_id)
-    try:
-        _people_ws = _spreadsheet.worksheet("People")
-    except gspread.WorksheetNotFound:
-        _people_ws = _spreadsheet.add_worksheet(title="People", rows=1000, cols=20)
-        _people_ws.append_row(_PEOPLE_HEADER_ROW)
-    return _people_ws
-
-def _get_client():
-    creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-    sheet_id = os.environ["GOOGLE_SHEET_ID"]
-    creds = Credentials.from_service_account_file(creds_file, scopes=_SCOPES)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(sheet_id)
-    return sheet
-
-
-def _get_worksheet(sheet, title: str, rows: int = 1000, header: list = None):
-    try:
-        return sheet.worksheet(title)
-    except gspread.WorksheetNotFound:
-        ws = sheet.add_worksheet(title=title, rows=rows, cols=len(header or []) + 5)
-        if header:
-            ws.append_row(header)
-        return ws
-
-
-def get_company_names() -> dict:
-    """Fetch all companies from the Companies sheet.
-
-    Returns a dict keyed by company id mapping to company name.
-    """
-    try:
-        sheet = _get_client()
-        ws = _get_worksheet(sheet, "Companies", header=_COMPANIES_HEADER_ROW)
-        all_rows = ws.get_all_values()
-        if not all_rows or len(all_rows) < 2:
-            return {}
-        return {
-            row[0].strip(): row[1].strip()
-            for row in all_rows[1:]
-            if len(row) > 1 and row[0].strip()
-        }
-    except Exception as e:
-        raise Exception(f"Failed to fetch companies: {e}") from e
-
-
-def get_people_dicts() -> list[dict]:
-    """Fetch all people from the People sheet as a list of dicts.
-
-    Reads the actual header row from the sheet so column order doesn't matter.
-    """
-    try:
-        sheet = _get_client()
-        ws = _get_worksheet(sheet, "People", header=_PEOPLE_HEADER_ROW)
-        all_rows = ws.get_all_values()
-        if not all_rows or len(all_rows) < 2:
-            return []
-        header = [h.strip() for h in all_rows[0]]
-        result = []
-        for row in all_rows[1:]:
-            if len(row) > 3 and row[3].strip():
-                d = {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
-                # Legacy fix: rows written before the phone column was added have the
-                # LinkedIn URL stored in the phone slot.  Detect and correct at read time.
-                if not d.get("linkedin") and d.get("phone", "").startswith("http"):
-                    d["linkedin"] = d["phone"]
-                    d["phone"] = ""
-                result.append(d)
-        return result
-    except Exception as e:
-        raise Exception(f"Failed to fetch people: {e}") from e
-
-
-def get_demos_dicts() -> list[dict]:
-    """Fetch all demos from the Demos sheet as a list of dicts."""
-    try:
-        sheet = _get_client()
-        ws = _get_worksheet(sheet, "Demos", header=_DEMOS_HEADER_ROW)
-        all_rows = ws.get_all_values()
-        if not all_rows or len(all_rows) < 2:
-            return []
-        header = [h.strip() for h in all_rows[0]]
-        return [
-            {header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}
-            for row in all_rows[1:]
-            if any(cell.strip() for cell in row)
-        ]
-    except Exception as e:
-        raise Exception(f"Failed to fetch demos: {e}") from e
+# ---------------------------------------------------------------------------
+# Reads
+# ---------------------------------------------------------------------------
 
 
 def get_existing_people() -> dict:
-    """Fetch all existing people from the People sheet.
+    """Return all people keyed by lowercase email -> person dict.
 
-    Returns a dict keyed by email (lowercase) for fast duplicate checking.
-    Values are the raw row lists.
+    Compatible with the api/main.py sheet-poller which expects
+    {email: record} where each record exposes 'id' and 'last_contact'.
     """
-    try:
-        sheet = _get_client()
-        ws = _get_worksheet(sheet, "People", header=_PEOPLE_HEADER_ROW)
-        all_rows = ws.get_all_values()
-
-        if not all_rows or len(all_rows) < 2:
-            return {}
-
-        existing = {}
-        for row in all_rows[1:]:
-            email = row[3].strip().lower() if len(row) > 3 and row[3] else ""
-            if email:
-                existing[email] = row
-        return existing
-    except Exception as e:
-        raise Exception(f"Failed to fetch existing people: {e}") from e
+    db = get_db()
+    res = (
+        db.table("people")
+        .select("id, name, email, last_contact, last_contact_date, stage")
+        .execute()
+    )
+    return {
+        row["email"].lower(): row
+        for row in res.data
+        if row.get("email")
+    }
 
 
-def filter_duplicates(new_people: List[dict]) -> tuple[List[dict], List[str]]:
-    """Filter out people whose email already exists in the sheet."""
+def get_people_dicts() -> list:
+    """Return all people joined with company names."""
+    db = get_db()
+    res = (
+        db.table("people")
+        .select("*, companies(name)")
+        .order("created_at", desc=False)
+        .execute()
+    )
+    rows = []
+    for r in res.data:
+        company = r.pop("companies", None) or {}
+        r["company_name"] = company.get("name", "")
+        rows.append(r)
+    return rows
+
+
+def get_company_names() -> dict:
+    """Return {company_id: company_name}."""
+    db = get_db()
+    res = db.table("companies").select("id, name").execute()
+    return {row["id"]: row["name"] for row in res.data}
+
+
+def get_demos_dicts() -> list:
+    """Return all demos joined with person and company names."""
+    db = get_db()
+    res = (
+        db.table("demos")
+        .select("*, people(name, email), companies(name)")
+        .order("date", desc=False)
+        .execute()
+    )
+    rows = []
+    for r in res.data:
+        person = r.pop("people", None) or {}
+        company = r.pop("companies", None) or {}
+        r["person_name"] = person.get("name", "")
+        r["person_email"] = person.get("email", "")
+        r["company_name"] = company.get("name", "")
+        rows.append(r)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Deduplication
+# ---------------------------------------------------------------------------
+
+
+def filter_duplicates(new_people, industry=None):
+    """Filter out people whose email already exists in Supabase."""
     existing = get_existing_people()
     filtered, duplicates = [], []
     for person in new_people:
@@ -187,77 +102,110 @@ def filter_duplicates(new_people: List[dict]) -> tuple[List[dict], List[str]]:
     return filtered, duplicates
 
 
-def _person_row(person: dict) -> list:
-    """Build a 14-column People row from a person dict."""
-    def _dt(val) -> str:
-        if val is None:
-            return ""
-        return val.isoformat() if hasattr(val, "isoformat") else str(val)
-
-    return [
-        person.get("id", ""),
-        person.get("name", ""),
-        person.get("company_id", ""),
-        person.get("email", ""),
-        person.get("phone", ""),              # E — phone (prospect agent won't have this)
-        person.get("linkedin", ""),           # F — linkedin
-        person.get("title", ""),
-        person.get("stage", "prospect"),
-        person.get("last_demo_id", ""),
-        person.get("next_demo_id", ""),
-        person.get("last_response", ""),      # K — last_response type string
-        person.get("last_contact", ""),       # L — last_contact type string
-        _dt(person.get("last_response_date")),  # M
-        _dt(person.get("last_contact_date")),   # N
-    ]
+# ---------------------------------------------------------------------------
+# Writes
+# ---------------------------------------------------------------------------
 
 
-def append_person(person_dict: dict) -> str:
-    """Append a single person record to the People sheet."""
-    try:
-        sheet = _get_client()
-        ws = _get_worksheet(sheet, "People", header=_PEOPLE_HEADER_ROW)
-        ws.append_row(_person_row(person_dict))
-        return f"Success: added person {person_dict.get('name', 'Unknown')}"
-    except Exception as e:
-        raise Exception(f"Failed to append person to Sheets: {e}") from e
+def append_people(people_list, industry=None, companies_by_name=None):
+    """Upsert people (and their companies) into Supabase.
 
+    For each person that carries a `company_name` field, the company is looked
+    up by name (case-insensitive) or created if it does not yet exist, and the
+    resulting UUID is set as the person's `company_id`.
 
-def append_people(people_list: List[dict], industry: Optional[str] = None) -> str:
-    """Append multiple person records to the People sheet.
-
-    Also upserts a Company row for each unique company_id so the outreach
-    agent can look up company details by id.
+    Args:
+        people_list: List of person dicts to upsert.
+        industry: Fallback industry string if not provided by company data.
+        companies_by_name: Optional dict of {company_name_lower: company_dict} with
+            full company details (website, city, state, zip, phone, employee_count, etc.)
+            returned by the prospecting agent.
     """
-    try:
-        sheet = _get_client()
-        people_ws = _get_worksheet(sheet, "People", header=_PEOPLE_HEADER_ROW)
-        companies_ws = _get_worksheet(sheet, "Companies", header=_COMPANIES_HEADER_ROW)
+    if not people_list:
+        return "Success: 0 people added."
 
-        # Load existing company IDs to avoid duplicates
-        existing_company_rows = companies_ws.get_all_values()
-        existing_company_ids = {
-            row[0].strip()
-            for row in existing_company_rows[1:]
-            if row and row[0].strip()
-        }
+    db = get_db()
+    _companies_by_name = {k.lower(): v for k, v in (companies_by_name or {}).items()}
 
-        seen_companies = set()
-        for person in people_list:
-            people_ws.append_row(_person_row(person))
+    # Build name->id map from existing companies
+    company_rows = db.table("companies").select("id, name").execute().data
+    name_to_id = {row["name"].lower(): row["id"] for row in company_rows}
 
-            company_id = person.get("company_id", "").strip()
-            if company_id and company_id not in existing_company_ids and company_id not in seen_companies:
-                seen_companies.add(company_id)
-                company_name = person.get("company_name", "") or company_id
-                companies_ws.append_row([
-                    company_id,    # id  (slug)
-                    company_name,  # name (full human-readable name)
-                    "", "", "", "", "", "",  # address, city, state, zip, phone, website
-                    industry or "",         # industry (passed through from ICP)
-                    "",                     # employee_count
-                ])
+    # Resolve or create companies referenced by the new people
+    new_companies = []
+    seen_names = {}  # name.lower() -> uuid (for this batch)
 
-        return f"Success: added {len(people_list)} people to Google Sheets."
-    except Exception as e:
-        raise Exception(f"Failed to append people to Sheets: {e}") from e
+    for person in people_list:
+        company_name = (person.get("company_name") or "").strip()
+        if not company_name:
+            continue
+        cn_lower = company_name.lower()
+        if cn_lower in name_to_id:
+            person["company_id"] = name_to_id[cn_lower]
+        elif cn_lower in seen_names:
+            person["company_id"] = seen_names[cn_lower]
+        else:
+            new_id = str(uuid.uuid4())
+            seen_names[cn_lower] = new_id
+            details = _companies_by_name.get(cn_lower, {})
+            new_companies.append({
+                "id": new_id,
+                "name": company_name,
+                "industry": details.get("industry") or industry or "",
+                "website": details.get("website") or None,
+                "address": details.get("address") or None,
+                "city": details.get("city") or None,
+                "state": details.get("state") or None,
+                "zip": details.get("zip") or None,
+                "phone": details.get("phone") or None,
+                "employee_count": details.get("employee_count") or None,
+            })
+            person["company_id"] = new_id
+
+    if new_companies:
+        db.table("companies").upsert(new_companies, on_conflict="id").execute()
+
+    # Build clean person rows
+    person_rows = []
+    for person in people_list:
+        person_rows.append({
+            "id": person.get("id") or str(uuid.uuid4()),
+            "name": person.get("name", ""),
+            "email": person.get("email", ""),
+            "company_id": person.get("company_id") or None,
+            "phone": person.get("phone") or None,
+            "linkedin": person.get("linkedin") or None,
+            "title": person.get("title") or None,
+            "stage": person.get("stage") or "prospect",
+            "last_response": person.get("last_response") or None,
+            "last_contact": person.get("last_contact") or None,
+            "last_response_date": person.get("last_response_date") or None,
+            "last_contact_date": person.get("last_contact_date") or None,
+        })
+
+    db.table("people").upsert(person_rows, on_conflict="email").execute()
+    return f"Success: added {len(person_rows)} people to Supabase."
+
+
+def append_person(person_dict):
+    """Insert or update a single person in Supabase."""
+    return append_people([person_dict])
+
+
+def append_company(company_dict: dict) -> dict:
+    """Insert or update a single company in Supabase. Returns the saved company dict."""
+    db = get_db()
+    row = {
+        "id": company_dict.get("id") or str(uuid.uuid4()),
+        "name": company_dict.get("name", ""),
+        "website": company_dict.get("website") or None,
+        "industry": company_dict.get("industry") or None,
+        "address": company_dict.get("address") or None,
+        "city": company_dict.get("city") or None,
+        "state": company_dict.get("state") or None,
+        "zip": company_dict.get("zip") or None,
+        "phone": company_dict.get("phone") or None,
+        "employee_count": company_dict.get("employee_count") or None,
+    }
+    db.table("companies").upsert(row, on_conflict="id").execute()
+    return row

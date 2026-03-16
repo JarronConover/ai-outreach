@@ -50,24 +50,13 @@ class OutreachTracer:
     def log_run_end(self, summary: dict) -> None:
         self._record("RUN_END", {"summary": summary})
 
-    def log_sheet_read(self, spreadsheet_id: str, sheet_name: str, row_count: int) -> None:
+    def log_db_read(self, source: str, table_name: str, row_count: int) -> None:
         self._record(
-            "SHEET_READ",
+            "DB_READ",
             {
-                "spreadsheet_id": spreadsheet_id,
-                "sheet_name": sheet_name,
+                "source": source,
+                "table_name": table_name,
                 "row_count": row_count,
-            },
-        )
-
-    def log_sheet_update(self, spreadsheet_id: str, row_index: int, column: str, value: str) -> None:
-        self._record(
-            "SHEET_UPDATE",
-            {
-                "spreadsheet_id": spreadsheet_id,
-                "row_index": row_index,
-                "column": column,
-                "value": value,
             },
         )
 
