@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Calendar, RefreshCw } from "lucide-react";
+import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { Badge } from "@/components/ui/badge";
 
 interface Demo {
@@ -51,6 +52,8 @@ export function DemosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "scheduled" | "completed" | "canceled">("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const fetchDemos = useCallback(async () => {
     setLoading(true);
@@ -70,6 +73,19 @@ export function DemosPage() {
     fetchDemos();
   }, [fetchDemos]);
 
+  const handleDelete = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/demos/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setDemos((prev) => prev.filter((d) => d.id !== id));
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const filtered =
     filter === "all" ? demos : demos.filter((d) => d.status?.toLowerCase() === filter);
 
@@ -88,7 +104,6 @@ export function DemosPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Status filter tabs */}
           <div className="flex gap-1 p-1 rounded-lg bg-[#f3f4f6]">
             {(["all", "scheduled", "completed", "canceled"] as const).map((f) => (
               <button
@@ -132,7 +147,7 @@ export function DemosPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e5e7eb] bg-white/30">
-                  {["Type", "Contact", "Company", "Date & Time", "Status", "#"].map((h) => (
+                  {["Type", "Contact", "Company", "Date & Time", "Status", "#", ""].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase tracking-wide whitespace-nowrap"
@@ -170,6 +185,16 @@ export function DemosPage() {
                     </td>
                     <td className="px-4 py-3 text-[#9ca3af] text-center">
                       {d.count ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <ConfirmDelete
+                        id={d.id}
+                        pending={pendingId}
+                        deleting={deletingId}
+                        onRequest={setPendingId}
+                        onConfirm={(id) => { setPendingId(null); handleDelete(id); }}
+                        onCancel={() => setPendingId(null)}
+                      />
                     </td>
                   </tr>
                 ))}

@@ -50,8 +50,8 @@ export function ProspectButton({ onComplete, collapsed = false }: ProspectButton
     <button
       onClick={handleRun}
       disabled={isRunning}
-      title="Run Prospecting Agent"
-      aria-label="Run prospecting agent"
+      title="Get Prospects"
+      aria-label="Get prospects"
       className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
         isRunning ? "bg-[#f3f4f6] cursor-not-allowed"
         : isDone ? "bg-emerald-50 cursor-default"
@@ -68,7 +68,7 @@ export function ProspectButton({ onComplete, collapsed = false }: ProspectButton
 
   if (collapsed) {
     return (
-      <div className="flex justify-center py-1" title="Prospect">
+      <div className="flex justify-center py-1" title="Get Prospects">
         {iconBtn}
       </div>
     );
@@ -79,7 +79,7 @@ export function ProspectButton({ onComplete, collapsed = false }: ProspectButton
       <div className="flex items-center gap-2.5">
         <Play className="size-4 text-[#6b7280]" />
         <div>
-          <p className="text-xs font-semibold text-[#111827]">Prospect</p>
+          <p className="text-xs font-semibold text-[#111827]">Get Prospects</p>
           <p className={`text-[10px] ${isFailed ? "text-red-400" : isDone ? "text-[#0d9488]" : "text-[#9ca3af]"}`}>
             {statusLabel}
           </p>

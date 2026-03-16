@@ -5,9 +5,10 @@ type OrchestratorStatus = "idle" | "pending" | "running";
 
 interface OrchestratorSwitchProps {
   collapsed?: boolean;
+  onStatusChange?: (status: OrchestratorStatus) => void;
 }
 
-export function OrchestratorSwitch({ collapsed = false }: OrchestratorSwitchProps) {
+export function OrchestratorSwitch({ collapsed = false, onStatusChange }: OrchestratorSwitchProps) {
   const [status, setStatus] = useState<OrchestratorStatus>("idle");
   const [loading, setLoading] = useState(false);
 
@@ -16,11 +17,13 @@ export function OrchestratorSwitch({ collapsed = false }: OrchestratorSwitchProp
       const res = await fetch("/api/orchestrator/status");
       if (!res.ok) return;
       const data = await res.json();
-      setStatus(data.status === "idle" ? "idle" : data.status);
+      const s: OrchestratorStatus = data.status === "idle" ? "idle" : data.status;
+      setStatus(s);
+      onStatusChange?.(s);
     } catch {
       // backend offline — keep current state
     }
-  }, []);
+  }, [onStatusChange]);
 
   useEffect(() => {
     fetchStatus();

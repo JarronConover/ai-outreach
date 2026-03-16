@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Users, ExternalLink, RefreshCw } from "lucide-react";
+import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { Badge } from "@/components/ui/badge";
 
 interface Person {
@@ -42,6 +43,8 @@ export function PeoplePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const fetchPeople = useCallback(async () => {
     setLoading(true);
@@ -60,6 +63,19 @@ export function PeoplePage() {
   useEffect(() => {
     fetchPeople();
   }, [fetchPeople]);
+
+  const handleDelete = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/people/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setPeople((prev) => prev.filter((p) => p.id !== id));
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const filtered = people.filter((p) => {
     const q = search.toLowerCase();
@@ -123,14 +139,8 @@ export function PeoplePage() {
               <thead>
                 <tr className="border-b border-[#e5e7eb] bg-white/30">
                   {[
-                    "Name",
-                    "Title",
-                    "Company",
-                    "Email",
-                    "LinkedIn",
-                    "Stage",
-                    "Last Contact",
-                    "Last Response",
+                    "Name", "Title", "Company", "Email", "LinkedIn",
+                    "Stage", "Last Contact", "Last Response", "",
                   ].map((h) => (
                     <th
                       key={h}
@@ -158,10 +168,7 @@ export function PeoplePage() {
                     </td>
                     <td className="px-4 py-3">
                       {p.email ? (
-                        <a
-                          href={`mailto:${p.email}`}
-                          className="text-[#0d9488] hover:underline"
-                        >
+                        <a href={`mailto:${p.email}`} className="text-[#0d9488] hover:underline">
                           {p.email}
                         </a>
                       ) : (
@@ -193,6 +200,16 @@ export function PeoplePage() {
                     </td>
                     <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap text-xs">
                       {formatDate(p.last_response_date || p.last_response)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <ConfirmDelete
+                        id={p.id}
+                        pending={pendingId}
+                        deleting={deletingId}
+                        onRequest={setPendingId}
+                        onConfirm={(id) => { setPendingId(null); handleDelete(id); }}
+                        onCancel={() => setPendingId(null)}
+                      />
                     </td>
                   </tr>
                 ))}

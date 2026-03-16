@@ -1,72 +1,39 @@
 import { useState } from "react";
-import { ExternalLink, RefreshCw, ArrowRight } from "lucide-react";
+import { Building2, Globe, RefreshCw, ArrowRight } from "lucide-react";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
-import { Badge } from "@/components/ui/badge";
 
-interface Person {
+interface Company {
   id: string;
   name: string;
-  company_id: string;
-  email: string;
+  industry: string;
+  employee_count: string | number;
+  website: string;
+  city: string;
+  state: string;
   phone: string;
-  linkedin: string;
-  title: string;
-  stage: string;
-  last_demo_id: string;
-  next_demo_id: string;
-  last_response: string;
-  last_contact: string;
-  last_response_date: string;
-  last_contact_date: string;
-  company_name: string;
 }
 
-const STAGE_PRIORITY: Record<string, number> = {
-  client: 7,
-  onboarding: 6,
-  pricing: 5,
-  demo_completed: 4,
-  demo_scheduled: 3,
-  contacted: 2,
-  prospect: 1,
-};
-
-function stagePriority(stage: string): number {
-  return STAGE_PRIORITY[(stage || "").toLowerCase()] ?? 0;
-}
-
-function stageBadgeVariant(stage: string): "teal" | "green" | "gray" {
-  const s = (stage || "").toLowerCase();
-  if (s === "prospect" || s === "prospecting") return "teal";
-  if (s === "client" || s === "onboarding") return "green";
-  return "gray";
-}
-
-interface PeopleTableProps {
-  people: Record<string, string>[];
+interface CompaniesWidgetProps {
+  companies: Company[];
   loading: boolean;
   onRefresh: () => void;
   onSeeMore?: () => void;
 }
 
-export function PeopleTable({ people: rawPeople, loading, onRefresh, onSeeMore }: PeopleTableProps) {
-  const allPeople = rawPeople as unknown as Person[];
+export function CompaniesWidget({ companies: allCompanies, loading, onRefresh, onSeeMore }: CompaniesWidgetProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
 
-  const visible = allPeople.filter((p) => !removed.has(p.id));
-  const displayed = visible
-    .slice()
-    .sort((a, b) => stagePriority(b.stage) - stagePriority(a.stage))
-    .slice(0, 10);
+  const visible = allCompanies.filter((c) => !removed.has(c.id));
+  const displayed = visible.slice(0, 10);
   const total = visible.length;
 
   const handleDelete = async (id: string) => {
     if (deletingId) return;
     setDeletingId(id);
     try {
-      const res = await fetch(`/api/people/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/companies/${id}`, { method: "DELETE" });
       if (res.ok || res.status === 204) {
         setRemoved((prev) => new Set(prev).add(id));
       }
@@ -79,7 +46,10 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh, onSeeMore }
     <div className="panel overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-white/40">
         <h2 className="text-sm font-semibold text-[#111827]">
-          Contacts
+          <span className="inline-flex items-center gap-2">
+            <Building2 className="size-4 text-[#0d9488]" />
+            Companies
+          </span>
           {total > 0 && (
             <span className="ml-2 text-xs font-normal text-[#9ca3af]">
               {total} total
@@ -99,7 +69,7 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh, onSeeMore }
         <div className="px-5 py-12 text-center text-sm text-[#9ca3af]">Loading…</div>
       ) : total === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-[#9ca3af]">
-          No contacts yet. Run the agent to generate leads.
+          No companies yet. Run the prospect agent to generate leads.
         </div>
       ) : (
         <>
@@ -107,7 +77,7 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh, onSeeMore }
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e5e7eb] bg-white/30">
-                  {["Name", "Title", "Company", "LinkedIn", "Email", "Stage", ""].map((h) => (
+                  {["Company", "Industry", "Employees", "Location", "Website", ""].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase tracking-wide"
@@ -118,46 +88,37 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh, onSeeMore }
                 </tr>
               </thead>
               <tbody>
-                {displayed.map((p, i) => (
+                {displayed.map((c, i) => (
                   <tr
-                    key={p.id || i}
+                    key={c.id || i}
                     className="border-b border-white/40 hover:bg-white/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium text-[#111827] whitespace-nowrap">
-                      {p.name || "—"}
+                      {c.name || "—"}
                     </td>
-                    <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.title || "—"}</td>
-                    <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">{p.company_name || "—"}</td>
+                    <td className="px-4 py-3 text-[#4b5563]">{c.industry || "—"}</td>
+                    <td className="px-4 py-3 text-[#4b5563] text-center">{c.employee_count || "—"}</td>
+                    <td className="px-4 py-3 text-[#4b5563] whitespace-nowrap">
+                      {[c.city, c.state].filter(Boolean).join(", ") || "—"}
+                    </td>
                     <td className="px-4 py-3">
-                      {p.linkedin ? (
+                      {c.website ? (
                         <a
-                          href={p.linkedin}
+                          href={c.website.startsWith("http") ? c.website : `https://${c.website}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-[#0d9488] hover:underline"
                         >
-                          <ExternalLink className="size-3" />
-                          Profile
+                          <Globe className="size-3" />
+                          {c.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
                         </a>
                       ) : (
                         <span className="text-[#9ca3af]">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-[#4b5563]">
-                      {p.email ? (
-                        <a href={`mailto:${p.email}`} className="text-[#0d9488] hover:underline">
-                          {p.email}
-                        </a>
-                      ) : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={stageBadgeVariant(p.stage)}>
-                        {p.stage || "prospect"}
-                      </Badge>
-                    </td>
                     <td className="px-4 py-3">
                       <ConfirmDelete
-                        id={p.id}
+                        id={c.id}
                         pending={pendingId}
                         deleting={deletingId}
                         onRequest={setPendingId}
@@ -176,7 +137,7 @@ export function PeopleTable({ people: rawPeople, loading, onRefresh, onSeeMore }
                 onClick={onSeeMore}
                 className="flex items-center gap-1.5 text-xs font-medium text-[#0d9488] hover:text-[#0f766e] transition-colors"
               >
-                See all {total} contacts
+                See all {total} companies
                 <ArrowRight className="size-3.5" />
               </button>
             </div>

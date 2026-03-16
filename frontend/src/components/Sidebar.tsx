@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   LayoutDashboard, Building2, Users, Calendar, Mail,
-  Server, Loader2, PlusCircle, ChevronLeft, ChevronRight, BookOpen,
+  Server, Loader2, PlusCircle, ChevronLeft, ChevronRight, BookOpen, Activity,
 } from "lucide-react";
 import { OrchestratorSwitch } from "@/components/OrchestratorSwitch";
 import { ProspectButton } from "@/components/ProspectButton";
@@ -30,6 +30,7 @@ type BackendState = "online" | "offline" | "starting" | "checking";
 
 export function Sidebar({ currentPage, onNavigate, onJobComplete, collapsed, onToggle }: SidebarProps) {
   const [backendState, setBackendState] = useState<BackendState>("checking");
+  const [orchStatus, setOrchStatus] = useState<"idle" | "pending" | "running">("idle");
 
   const checkBackend = useCallback(async () => {
     try {
@@ -46,25 +47,7 @@ export function Sidebar({ currentPage, onNavigate, onJobComplete, collapsed, onT
     return () => clearInterval(id);
   }, [checkBackend]);
 
-  const handleStartBackend = async () => {
-    setBackendState("starting");
-    try {
-      await fetch("/dev/start-backend", { method: "POST" });
-      let attempts = 0;
-      const poll = setInterval(async () => {
-        attempts++;
-        try {
-          const res = await fetch("/api/health", { signal: AbortSignal.timeout(1500) });
-          if (res.ok) { setBackendState("online"); clearInterval(poll); }
-        } catch { /* still starting */ }
-        if (attempts > 20) { clearInterval(poll); setBackendState("offline"); }
-      }, 1500);
-    } catch {
-      setBackendState("offline");
-    }
-  };
-
-  const backendDot = {
+const backendDot = {
     online: "bg-emerald-500", offline: "bg-red-400",
     starting: "bg-amber-400", checking: "bg-[#d1d5db]",
   }[backendState];
@@ -158,8 +141,23 @@ export function Sidebar({ currentPage, onNavigate, onJobComplete, collapsed, onT
           </p>
         )}
 
+        {orchStatus !== "idle" && (
+          collapsed ? (
+            <div className="flex justify-center py-1" title={`Orchestrator: ${orchStatus}`}>
+              <Activity className="size-4 text-[#0d9488] animate-pulse" />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[#0d9488]/8 border border-[#0d9488]/20 shadow-sm">
+              <Activity className="size-4 text-[#0d9488] shrink-0 animate-pulse" />
+              <div>
+                <p className="text-xs font-semibold text-[#0d9488]">Orchestrator Active</p>
+                <p className="text-[10px] text-[#0d9488]/70 capitalize">{orchStatus === "pending" ? "Starting…" : "Running"}</p>
+              </div>
+            </div>
+          )
+        )}
         <ProspectButton onComplete={onJobComplete} collapsed={collapsed} />
-        <OrchestratorSwitch collapsed={collapsed} />
+        <OrchestratorSwitch collapsed={collapsed} onStatusChange={setOrchStatus} />
 
         {/* Backend status */}
         {collapsed ? (
@@ -177,15 +175,7 @@ export function Sidebar({ currentPage, onNavigate, onJobComplete, collapsed, onT
             </div>
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${backendDot}`} />
-              {backendState === "offline" && (
-                <button
-                  onClick={handleStartBackend}
-                  className="text-[10px] font-medium px-2 py-1 rounded-md bg-[#0d9488] text-white hover:bg-[#0f766e] transition-colors"
-                >
-                  Start
-                </button>
-              )}
-              {backendState === "starting" && <Loader2 className="size-3 text-[#0d9488] animate-spin" />}
+                    {backendState === "starting" && <Loader2 className="size-3 text-[#0d9488] animate-spin" />}
             </div>
           </div>
         )}

@@ -8,6 +8,7 @@ import { Sidebar, type Page } from "@/components/Sidebar";
 import { PendingActionsWidget } from "@/components/PendingActionsWidget";
 import { NeedsResponseWidget } from "@/components/NeedsResponseWidget";
 import { PeopleTable } from "@/components/PeopleTable";
+import { CompaniesWidget } from "@/components/CompaniesWidget";
 import { DemosWidget } from "@/components/DemosWidget";
 import { KpiCards } from "@/components/KpiCards";
 import { CompaniesPage } from "@/pages/CompaniesPage";
@@ -27,6 +28,7 @@ interface Stats {
 interface DashboardData {
   stats: Stats;
   people: Record<string, string>[];
+  companies: Record<string, string>[];
   demos: Record<string, string>[];
 }
 
@@ -114,9 +116,16 @@ export default function App() {
             <KpiCards stats={dashboard?.stats ?? null} loading={loading} />
             <div className="flex-1 min-w-0 flex flex-col gap-5">
               <PeopleTable
+                onSeeMore={() => setCurrentPage("people")}
                 people={dashboard?.people ?? []}
                 loading={loading}
                 onRefresh={fetchDashboard}
+              />
+              <CompaniesWidget
+                companies={dashboard?.companies ?? []}
+                loading={loading}
+                onRefresh={fetchDashboard}
+                onSeeMore={() => setCurrentPage("companies")}
               />
               <DemosWidget
                 demos={dashboard?.demos ?? []}

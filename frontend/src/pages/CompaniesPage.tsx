@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Building2, Globe, RefreshCw } from "lucide-react";
+import { ConfirmDelete } from "@/components/ConfirmDelete";
 
 interface Company {
   id: string;
@@ -16,6 +17,8 @@ export function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -34,6 +37,19 @@ export function CompaniesPage() {
   useEffect(() => {
     fetchCompanies();
   }, [fetchCompanies]);
+
+  const handleDelete = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/companies/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setCompanies((prev) => prev.filter((c) => c.id !== id));
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6">
@@ -78,7 +94,7 @@ export function CompaniesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e5e7eb] bg-white/30">
-                  {["Company", "Industry", "Employees", "Location", "Website", "Phone"].map(
+                  {["Company", "Industry", "Employees", "Location", "Website", "Phone", ""].map(
                     (h) => (
                       <th
                         key={h}
@@ -124,6 +140,16 @@ export function CompaniesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-[#4b5563]">{c.phone || "—"}</td>
+                    <td className="px-4 py-3">
+                      <ConfirmDelete
+                        id={c.id}
+                        pending={pendingId}
+                        deleting={deletingId}
+                        onRequest={setPendingId}
+                        onConfirm={(id) => { setPendingId(null); handleDelete(id); }}
+                        onCancel={() => setPendingId(null)}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

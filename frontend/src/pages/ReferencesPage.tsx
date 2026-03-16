@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   FileText, Settings2, ChevronDown, ChevronUp,
-  Pencil, X, Save, Loader2, Plus, Trash2,
+  Pencil, X, Save, Loader2, Plus, Trash2, Play, CheckCircle2,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -212,6 +212,9 @@ function IcpCard() {
   const [draft, setDraft] = useState<IcpConfig>({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [savedOnce, setSavedOnce] = useState(false);
+  const [prospecting, setProspecting] = useState(false);
+  const [prospectDone, setProspectDone] = useState(false);
 
   const load = useCallback(async () => {
     if (config) return;
@@ -249,9 +252,38 @@ function IcpCard() {
       if (res.ok) {
         setConfig(draft);
         setEditing(false);
+        setSavedOnce(true);
+        setProspectDone(false);
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRunProspect = async () => {
+    if (prospecting) return;
+    setProspecting(true);
+    try {
+      const res = await fetch("/api/prospect", { method: "POST" });
+      if (res.ok) {
+        // Poll the job until done
+        const { job_id } = await res.json();
+        const poll = setInterval(async () => {
+          const jr = await fetch(`/api/jobs/${job_id}`);
+          if (jr.ok) {
+            const job = await jr.json();
+            if (job.status === "completed" || job.status === "failed") {
+              clearInterval(poll);
+              setProspecting(false);
+              if (job.status === "completed") setProspectDone(true);
+            }
+          }
+        }, 2500);
+      } else {
+        setProspecting(false);
+      }
+    } catch {
+      setProspecting(false);
     }
   };
 
@@ -313,7 +345,28 @@ function IcpCard() {
                 saving={saving}
               />
             ) : (
-              <IcpReadView config={config} onEdit={handleEdit} />
+              <>
+                <IcpReadView config={config} onEdit={handleEdit} />
+                {savedOnce && (
+                  <div className="mt-4 pt-4 border-t border-[#f3f4f6] flex items-center gap-3">
+                    <button
+                      onClick={handleRunProspect}
+                      disabled={prospecting || prospectDone}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0d9488] text-white text-xs font-medium hover:bg-[#0f766e] disabled:opacity-60 transition-colors"
+                    >
+                      {prospecting
+                        ? <Loader2 className="size-3 animate-spin" />
+                        : prospectDone
+                        ? <CheckCircle2 className="size-3" />
+                        : <Play className="size-3 fill-white" />}
+                      {prospecting ? "Running…" : prospectDone ? "Done" : "Run Prospecting with new ICP"}
+                    </button>
+                    {!prospecting && !prospectDone && (
+                      <p className="text-xs text-[#9ca3af]">ICP saved — prospect agent will use the new config</p>
+                    )}
+                  </div>
+                )}
+              </>
             )
           ) : null}
         </div>
